@@ -1,7 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { processPayment } = require('../controllers/paymentController');
+const { auth } = require('../middleware/auth');
+const paymentController = require('../controllers/paymentController');
 
-router.post('/process', processPayment);
+router.get('/methods', auth, paymentController.getAvailablePaymentMethods);
+router.post('/initiate', auth, paymentController.initiatePayment);
+router.post('/webhook/:gatewayId', paymentController.handleWebhook);
+router.get('/status/:transactionId', auth, paymentController.getTransactionStatus);
 
 module.exports = router;
