@@ -22,7 +22,7 @@ class RazorpayHandler {
         const response = await axios.post(
             `${config.apiBaseUrl}/orders`,
             {
-                amount: amount * 100, 
+                amount: amount * 100, // Razorpay expects amount in paise
                 currency: 'INR',
                 receipt: orderId,
                 notes: {
