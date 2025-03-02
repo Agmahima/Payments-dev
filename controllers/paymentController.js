@@ -164,7 +164,7 @@ const createPayment = async (req, res) => {
         // Initiate payment with Cashfree
         const result = await cashfreeHandler.initiatePayment({
             amount: payment_amount,
-            orderId: payment._id.toString(), // Use MongoDB ID as order ID
+            orderId: payment._id.toString(), 
             currency: payment_currency,
             customerDetails: {
                 id: userId,
