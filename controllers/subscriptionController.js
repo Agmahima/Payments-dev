@@ -3,6 +3,7 @@ const Payment = require('../models/Payment');
 const Transaction = require('../models/Transaction');
 const axios = require('axios');
 const crypto = require('crypto');
+const mongoose = require('mongoose');
 
 const CASHFREE_API_BASE = process.env.NODE_ENV === 'production' 
     ? 'https://api.cashfree.com/pg'
@@ -15,16 +16,6 @@ exports.createSubscription = async (req, res) => {
         // Determining the amount based on the tier
         const amount = getAmountForTier(tier); 
         const orderId = `order_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-
-        // Create a new transaction first
-        const transaction = new Transaction({
-            transactionId: orderId,
-            userId,
-            amount,
-            currency: 'INR',
-            status: 'pending'
-        });
-        await transaction.save();
 
         // Create Cashfree order
         const orderPayload = {
@@ -57,18 +48,38 @@ exports.createSubscription = async (req, res) => {
             }
         );
 
-        // Create payment record
+        // Create payment record first
         const payment = new Payment({
-            userId,
-            paymentFor: transaction._id,
-            paymentMethod: 'CASHFREE',
-            amount,
-            currency: 'INR',
-            status: 'pending',
-            transactionId: orderId,
-            paymentLink: cashfreeResponse.data.payment_link,
-            createdBy: userId
+            request_ref: orderId,
+            payment_purpose: `Subscription - ${tier.toUpperCase()}`,
+            payment_amount: amount,
+            payment_currency: 'INR',
+            payee_ref: new mongoose.Types.ObjectId(userId),
+            payee_type: 'user',
+            receiver_ref: new mongoose.Types.ObjectId(userId),
+            receiver_type: 'platform',
+            payment_gateway: 'CASHFREE',
+            payment_status: 'PENDING',
+            created_by: new mongoose.Types.ObjectId(userId),
+            updated_by: new mongoose.Types.ObjectId(userId)
         });
+        
+        await payment.save();
+
+        // Now create transaction with correct fields
+        const transaction = new Transaction({
+            transaction_mode: 'OTHER', 
+            payment_id: payment._id, 
+            gateway_used: 'CASHFREE', // Required field
+            gateway_response: cashfreeResponse.data,
+            created_by: new mongoose.Types.ObjectId(userId), 
+            updated_by: new mongoose.Types.ObjectId(userId)  
+        });
+        
+        await transaction.save();
+        
+        // Update payment with transaction reference
+        payment.transaction = transaction._id;
         await payment.save();
 
         res.status(200).json({
@@ -79,7 +90,7 @@ exports.createSubscription = async (req, res) => {
                 paymentLink: cashfreeResponse.data.payment_link
             }
         });
-
+        console.log("res:",cashfreeResponse.data.payment_link);
     } catch (error) {
         console.error('Payment creation error:', error);
         res.status(500).json({ 

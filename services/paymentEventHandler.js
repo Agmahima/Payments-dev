@@ -135,6 +135,7 @@ function selectPaymentGateway(purpose, location, defaultGateway = 'CASHFREE') {
  */
 async function processPaymentWithGateway(gateway, payment, customerDetails, description, userId) {
   // Currently only implementing Cashfree
+  const userId = "65f123456789abcdef123456";
   if (gateway === 'CASHFREE') {
     return await cashfreeGateway.initiatePayment({
       amount: payment.payment_amount,
@@ -157,6 +158,7 @@ async function processPaymentWithGateway(gateway, payment, customerDetails, desc
  * Store the transaction record
  */
 async function storeTransaction(paymentId, gateway, gatewayResult, userId) {
+  const userId = "65f123456789abcdef123456";
   const transaction = new Transaction({
     payment_id: mongoose.Types.ObjectId(paymentId),
     transaction_mode: gatewayResult.paymentSessionId ? 'ONLINE' : 'UNKNOWN',

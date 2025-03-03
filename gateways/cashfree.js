@@ -1,7 +1,5 @@
 const crypto = require('crypto');
 const axios = require('axios');
-const Payment = require('../models/Payment');
-const Transaction = require('../models/Transaction');
 
 class CashfreeGateway {
   constructor() {
@@ -14,9 +12,7 @@ class CashfreeGateway {
     this.backendUrl = process.env.BACKEND_URL || 'http://localhost:4000';
   }
 
-  
-   //Initiate a payment with Cashfree
-   
+  // Initiate a payment with Cashfree
   async initiatePayment(paymentDetails) {
     try {
       const { 
@@ -76,9 +72,7 @@ class CashfreeGateway {
     }
   }
 
-  
-  // * Verify the signature of a webhook payload
-   
+  // Verify webhook signature
   verifyWebhookSignature(payload, signature) {
     try {
       const computedSignature = crypto
@@ -88,14 +82,12 @@ class CashfreeGateway {
       
       return computedSignature === signature;
     } catch (error) {
-      console.error('Signature verification error:', error);
+      console.error('Webhook signature verification error:', error);
       return false;
     }
   }
 
-  
-  //  Process webhook data
-   
+  // Process webhook data
   processWebhookData(webhookData) {
     const { data, type } = webhookData;
     
@@ -132,9 +124,7 @@ class CashfreeGateway {
     };
   }
 
-  
-  // * Get status of a payment
-   
+  // Get status of a payment
   async getPaymentStatus(orderId, paymentId) {
     try {
       const response = await axios.get(
@@ -165,4 +155,6 @@ class CashfreeGateway {
   }
 }
 
-module.exports = new CashfreeGateway();
+const cashfreeHandler = new CashfreeGateway();
+
+module.exports = { cashfreeHandler };

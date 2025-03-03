@@ -3,9 +3,9 @@ const router = express.Router();
 const { auth } = require('../middleware/auth');
 const paymentController = require('../controllers/paymentController');
 
-router.get('/methods', auth, paymentController.getAvailablePaymentMethods);
-router.post('/initiate', auth, paymentController.initiatePayment);
+router.get('/methods', paymentController.getAvailablePaymentMethods);
+router.post('/initiate', paymentController.initiatePayment);
 router.post('/webhook/:gatewayId', paymentController.handleWebhook);
-router.get('/status/:transactionId', auth, paymentController.getTransactionStatus);
+//router.get('/status/:transactionId', auth, paymentController.getTransactionStatus);
 
 module.exports = router;

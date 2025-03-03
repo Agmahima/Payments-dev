@@ -1,45 +1,57 @@
-require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const connectDB = require('./config/db');
-const { createPaymentConsumer } = require('./services/queueConsumer');
-const webhookController = require('./controllers/webhookController');
-
+const dotenv = require('dotenv');
 const paymentRoutes = require('./routes/paymentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
-const gatewayRoutes = require('./routes/gatewayRoutes');
+// Load environment variables
+dotenv.config();
 
+// Create Express app
 const app = express();
 
+// Middleware
 app.use(express.json());
-app.use('/api/payments', paymentRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/gateways', gatewayRoutes);
+app.use(express.urlencoded({ extended: true }));
 
-mongoose.connect(process.env.MONGODB_URI, {
+// CORS middleware
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Connect to MongoDB
+mongoose
+  .connect(process.env.MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true
-})
-    .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.error('MongoDB connection error:', err));
+  })
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
-// Webhook endpoints for payment gateways
-app.post('/api/webhooks/cashfree', webhookController.handleCashfreeWebhook);
+// Routes
+app.use('/api/payments', paymentRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
-// Start SQS consumer for payment requests
-const paymentConsumer = createPaymentConsumer();
-paymentConsumer.start();
+// Home route
+app.get('/', (req, res) => {
+  res.send('Payment Service API is running');
+});
 
-// Start HTTP server for webhooks
-const PORT = process.env.PORT || 3000;
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ success: false, message: 'Internal server error', error: err.message });
+});
+
+// Start server
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
-// Handle graceful shutdown
-process.on('SIGINT', async () => {
-    console.log('Shutting down...');
-    paymentConsumer.stop();
-    await mongoose.disconnect();
-    process.exit(0);
-});
+module.exports = app;

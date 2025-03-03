@@ -1,6 +1,6 @@
-const PaymentGateway = require('../models/PaymentGateway');
+
 const { cashfreeHandler } = require('../gateways/cashfree');
-const { razorpayHandler } = require('../gateways/razorpay');
+
 const mongoose = require('mongoose');
 const crypto = require('crypto');
 const Payment = require('../models/Payment');
@@ -8,7 +8,6 @@ const Transaction = require('../models/Transaction');
 
 const gatewayHandlers = {
     'CASHFREE': cashfreeHandler,
-    'RAZORPAY': razorpayHandler
 };
 
 const getAvailablePaymentMethods = async (req, res) => {
@@ -42,15 +41,15 @@ const getAvailablePaymentMethods = async (req, res) => {
 
 const initiatePayment = async (req, res) => {
     try {
-        const { amount, gatewayId, paymentMethod } = req.body;
-        const userId = req.user.id;
+        const { amount, paymentMethod } = req.body;
+        //const userId = req.body.user.id;
 
-        const gateway = await PaymentGateway.findById(gatewayId);
-        if (!gateway || !gateway.isActive) {
-            return res.status(400).json({ error: 'Invalid payment gateway' });
-        }
+        // const gateway = await PaymentGateway.findById(gatewayId);
+        // if (!gateway || !gateway.isActive) {
+        //     return res.status(400).json({ error: 'Invalid payment gateway' });
+        // }
 
-        const handler = gatewayHandlers[gateway.gatewayIdentifier];
+        const handler = gatewayHandlers["CASHFREE"];
         if (!handler) {
             return res.status(400).json({ error: 'Unsupported payment gateway' });
         }
@@ -58,8 +57,8 @@ const initiatePayment = async (req, res) => {
         const result = await handler.initiatePayment({
             amount,
             paymentMethod,
-            user: req.user,
-            gateway,
+            user: "65f123456789abcdef123456",
+            gateway: "CASHFREE",
             metadata: req.body.metadata
         });
 
@@ -70,43 +69,14 @@ const initiatePayment = async (req, res) => {
     }
 };
 
-const handleWebhook = async (req, res) => {
-    try {
-        const gatewayId = req.params.gatewayId;
-        const gateway = await PaymentGateway.findById(gatewayId);
-        
-        if (!gateway) {
-            return res.status(400).json({ error: 'Invalid gateway' });
-        }
-
-        const handler = gatewayHandlers[gateway.gatewayIdentifier];
-        if (!handler) {
-            return res.status(400).json({ error: 'Unsupported payment gateway' });
-        }
-
-        const result = await handler.handleWebhook({
-            body: req.body,
-            headers: req.headers,
-            gateway
-        });
-
-        res.json(result);
-    } catch (error) {
-        console.error('Webhook handling error:', error);
-        res.status(500).json({ error: 'Internal server error' });
-    }
+const handleWebhook = (req, res) => {
+    return handleCashfreeWebhook(req, res);
 };
 
-
-// * Generate a unique order ID
- 
 const generateOrderId = () => {
-    return `ORD_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    return `order_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 };
 
-
-// * Create a new payment request
- 
 const createPayment = async (req, res) => {
     try {
         const {
@@ -124,13 +94,11 @@ const createPayment = async (req, res) => {
             description
         } = req.body;
 
-        // Extract user ID from request - get from middleware
-        const userId = req.user?._id;
+        const userId = "65f123456789abcdef123456";
         if (!userId) {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
-        // Validate required fields
         if (!payment_purpose || !payment_amount || !payee_ref || !payee_type || 
             !receiver_ref || !receiver_type || !customer_email || !customer_phone) {
             return res.status(400).json({ 
@@ -139,10 +107,8 @@ const createPayment = async (req, res) => {
             });
         }
 
-        // Generate unique order ID
         const orderId = generateOrderId();
         
-        // Create payment record
         const payment = new Payment({
             request_ref: orderId,
             payment_purpose,
@@ -161,13 +127,12 @@ const createPayment = async (req, res) => {
 
         await payment.save();
 
-        // Initiate payment with Cashfree
         const result = await cashfreeHandler.initiatePayment({
             amount: payment_amount,
-            orderId: payment._id.toString(), 
+            orderId: payment._id.toString(),
             currency: payment_currency,
             customerDetails: {
-                id: userId,
+                id: "65f123456789abcdef123456",
                 name: customer_name || 'Customer',
                 email: customer_email,
                 phone: customer_phone
@@ -176,7 +141,6 @@ const createPayment = async (req, res) => {
         });
 
         if (!result.success) {
-            // If payment initiation fails, mark payment as failed
             await Payment.findByIdAndUpdate(payment._id, {
                 payment_status: 'FAILED',
                 updated_by: mongoose.Types.ObjectId(userId)
@@ -189,9 +153,9 @@ const createPayment = async (req, res) => {
             });
         }
 
-        // Create transaction record
         const transaction = new Transaction({
-            transaction_mode: 'UPI', // Default, will be updated by webhook
+            transaction_mode: 'UPI',
+            payment_id: payment._id,
             gateway_used: 'CASHFREE',
             gateway_response: result.gatewayResponse,
             created_by: mongoose.Types.ObjectId(userId),
@@ -200,13 +164,11 @@ const createPayment = async (req, res) => {
 
         await transaction.save();
 
-        // Link transaction to payment
         await Payment.findByIdAndUpdate(payment._id, {
             transaction: transaction._id,
             updated_by: mongoose.Types.ObjectId(userId)
         });
 
-        // Return success response
         return res.status(200).json({
             success: true,
             payment_id: payment._id,
@@ -224,36 +186,27 @@ const createPayment = async (req, res) => {
     }
 };
 
-/**
- * Handle Cashfree webhook
- */
 const handleCashfreeWebhook = async (req, res) => {
     try {
-        // Get signature from headers
         const signature = req.header('x-webhook-signature');
         
-        // Verify signature
         if (!cashfreeHandler.verifyWebhookSignature(req.body, signature)) {
             console.error('Invalid webhook signature');
             return res.status(200).json({ success: false, message: 'Invalid signature' });
         }
         
-        // Process webhook data
         const { orderId, status, transactionDetails } = cashfreeHandler.processWebhookData(req.body);
         
-        // Find payment
         const payment = await Payment.findById(orderId);
         if (!payment) {
             console.error('Payment not found for order ID:', orderId);
             return res.status(200).json({ success: false, message: 'Payment not found' });
         }
         
-        // Update payment status
         payment.payment_status = status;
         payment.updated_by = payment.created_by;
         await payment.save();
         
-        // Update transaction if exists, or create if not
         if (payment.transaction) {
             await Transaction.findByIdAndUpdate(
                 payment.transaction,
@@ -267,9 +220,9 @@ const handleCashfreeWebhook = async (req, res) => {
                 }
             );
         } else {
-            // Create new transaction if it doesn't exist (rare case)
             const transaction = new Transaction({
                 transaction_mode: transactionDetails.transaction_mode,
+                payment_id: payment._id,
                 gateway_used: 'CASHFREE',
                 gateway_response: {
                     ...transactionDetails,
@@ -281,23 +234,17 @@ const handleCashfreeWebhook = async (req, res) => {
             
             const savedTransaction = await transaction.save();
             
-            // Link transaction to payment
             payment.transaction = savedTransaction._id;
             await payment.save();
         }
         
-        // Always return 200 OK to acknowledge receipt of webhook
         return res.status(200).json({ success: true });
     } catch (error) {
         console.error('Webhook handling error:', error);
-        // Still return 200 to acknowledge receipt
         return res.status(200).json({ success: true, message: 'Webhook received with errors' });
     }
 };
 
-/**
- * Get payment status
- */
 const getPaymentStatus = async (req, res) => {
     try {
         const { paymentId } = req.params;
@@ -307,18 +254,12 @@ const getPaymentStatus = async (req, res) => {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
         
-        // Find payment
-        const payment = await Payment.findOne({
-            _id: paymentId,
-            created_by: mongoose.Types.ObjectId(userId)
-        }).populate('transaction');
-        
+        const payment = await Payment.findById(paymentId).populate('transaction');
         if (!payment) {
             return res.status(404).json({ success: false, message: 'Payment not found' });
         }
         
-        // If payment is already complete or failed, return current status
-        if (payment.payment_status === 'SUCCESS' || payment.payment_status === 'FAILED') {
+        if (['SUCCESS', 'FAILED', 'CANCELLED'].includes(payment.payment_status)) {
             return res.status(200).json({
                 success: true,
                 payment_id: payment._id,
@@ -330,7 +271,6 @@ const getPaymentStatus = async (req, res) => {
             });
         }
         
-        // Otherwise, check with Cashfree for latest status
         if (payment.transaction?.gateway_response?.paymentId) {
             const result = await cashfreeHandler.getPaymentStatus(
                 payment._id.toString(),
@@ -338,7 +278,6 @@ const getPaymentStatus = async (req, res) => {
             );
             
             if (result.success) {
-                // Update transaction with latest response
                 await Transaction.findByIdAndUpdate(
                     payment.transaction._id,
                     {
@@ -350,7 +289,6 @@ const getPaymentStatus = async (req, res) => {
                     }
                 );
                 
-                // Update payment status if needed
                 const newStatus = result.status === 'SUCCESS' ? 'SUCCESS' : 
                                   result.status === 'FAILED' ? 'FAILED' : 
                                   'PENDING';
@@ -373,7 +311,6 @@ const getPaymentStatus = async (req, res) => {
             }
         }
         
-        // If we couldn't get status from gateway or no transaction exists
         return res.status(200).json({
             success: true,
             payment_id: payment._id,
