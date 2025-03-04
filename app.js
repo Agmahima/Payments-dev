@@ -1,16 +1,25 @@
+
+const dotenv = require('dotenv');
+dotenv.config();
 const express = require('express');
 const mongoose = require('mongoose');
-const dotenv = require('dotenv');
+const CASHFREE_API_URL = process.env.CASHFREE_BASE_URL ;
+
+console.log("url:", CASHFREE_API_URL);
+
 const paymentRoutes = require('./routes/paymentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 // Load environment variables
-dotenv.config();
 
 // Create Express app
 const app = express();
 
 // Middleware
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf, encoding) => {
+    req.rawBody = buf.toString(encoding || 'utf8');
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
