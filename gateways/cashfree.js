@@ -1,5 +1,5 @@
 const axios = require('axios');
-const CASHFREE_API_URL = process.env.CASHFREE_BASE_URL ;
+const CASHFREE_API_URL = process.env.CASHFREE_BASE_URL;  // e.g., "https://sandbox.cashfree.com/pg"
 const CASHFREE_APP_ID = process.env.CASHFREE_APP_ID;
 const CASHFREE_SECRET_KEY = process.env.CASHFREE_SECRET_KEY;
 const API_VERSION = '2022-09-01';
@@ -7,23 +7,23 @@ const API_VERSION = '2022-09-01';
 const initiatePayment = async (orderData) => {
   try {
     const headers = {
-      'x-api-version': '2022-09-01',
+      'x-api-version': API_VERSION,
       'Content-Type': 'application/json',
       'x-client-id': CASHFREE_APP_ID,
       'x-client-secret': CASHFREE_SECRET_KEY,
     };
-    console.log("url:", API_VERSION);
+    console.log("Using API version:", API_VERSION);
     const response = await axios.post(
-      `${CASHFREE_API_URL}/orders?api_version=${API_VERSION}`,
+      `${CASHFREE_API_URL}/orders`,
       orderData,
       { headers }
     );
-    console.log("response:", response.data);
+    console.log("Response from Cashfree:", response.data);
     return {
       success: true,
       paymentSessionId: response.data.payment_session_id,
       orderId: response.data.order_id,
-      paymentLink: response.data.payment_link,
+      paymentLink: response.data.payments.url,
       gatewayResponse: response.data
     };
   } catch (error) {
@@ -39,13 +39,14 @@ const initiatePayment = async (orderData) => {
 const getPaymentStatus = async (orderId, paymentId) => {
   try {
     const headers = {
-      'x-api-version': '2022-09-01',
+      'x-api-version': API_VERSION,
       'Content-Type': 'application/json',
       'x-client-id': CASHFREE_APP_ID,
       'x-client-secret': CASHFREE_SECRET_KEY,
     };
+    // Similarly, use headers only here:
     const response = await axios.get(
-      `${CASHFREE_API_URL}/orders/${orderId}?paymentId=${paymentId}&api_version=${API_VERSION}`,
+      `${CASHFREE_API_URL}/orders/${orderId}?paymentId=${paymentId}`,
       { headers }
     );
     return {
