@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Payment = require('../models/Payment');
 const Transaction = require('../models/Transaction');
-const PaymentMethod = require('../models/PaymentMethod'); 
+const PaymentMethod = require('../models/paymentMethodSchema'); 
 
 const cashfreeHandler = require('../gateways/cashfree');
 
@@ -128,7 +128,7 @@ async function createPayment(req, res) {
 
     // Validate required fields
     if (!payment_purpose || !payment_amount || !payee_ref || !payee_type ||
-        !receiver_ref || !receiver_type || !customer_email || !customer_phone || !paymentMethod) {
+        !receiver_ref || !receiver_type || !customer_email || !customer_phone ) {
       console.log("Missing required fields:", req.body);
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
@@ -292,47 +292,87 @@ async function createPayment(req, res) {
  * webhookHandler: Processes Cashfree webhook callbacks.
  * Expects req.rawBody to be set via middleware.
  */
+
 async function webhookHandler(req, res) {
   try {
     const webhookSignature = req.headers["x-webhook-signature"];
-    console.log("Received webhook signature:", webhookSignature);
-    console.log("Raw body received:", req.rawBody);
+    console.log("Webhook received:", {
+      signature: webhookSignature,
+      body: req.body
+    });
 
-    const computedSignature = crypto.createHmac("sha256", process.env.CASHFREE_SECRET_KEY)
-      .update(req.rawBody)
-      .digest("base64");
-    console.log("Computed signature:", computedSignature);
+    // In development, you can log but skip verification
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn('Webhook signature verification skipped in development');
+    } else {
+      if (!webhookSignature) {
+        return res.status(400).json({ error: "Missing webhook signature" });
+      }
+      
+      // Verify signature in production
+      const computedSignature = crypto
+        .createHmac("sha256", process.env.CASHFREE_WEBHOOK_SECRET)
+        .update(JSON.stringify(req.body))
+        .digest("base64");
 
-    if (webhookSignature !== computedSignature) {
-      console.error("Signature mismatch!");
-      return res.status(400).json({ error: "Invalid signature" });
+      if (webhookSignature !== computedSignature) {
+        console.error("Invalid signature", { received: webhookSignature, computed: computedSignature });
+        return res.status(400).json({ error: "Invalid signature" });
+      }
     }
 
     const { order, payment } = req.body.data;
-    const PaymentModel = Payment;
-    const paymentDoc = await PaymentModel.findOne({ request_ref: order.order_id });
-    if (!paymentDoc) return res.status(404).json({ error: "Payment not found" });
-    const TransactionModel = Transaction;
-    const transaction = await TransactionModel.findOne({ payment_id: paymentDoc._id });
-    if (!transaction) return res.status(404).json({ error: "Transaction not found" });
-
-    if (payment.payment_status === "SUCCESS") {
-      paymentDoc.payment_status = 'SUCCESS';
-      transaction.gateway_response.status = 'SUCCESS';
-    } else {
-      paymentDoc.payment_status = 'FAILED';
-      transaction.gateway_response.status = 'FAILED';
+    
+    // Find and update payment record
+    const paymentDoc = await Payment.findById(order.order_id);
+    if (!paymentDoc) {
+      console.error("Payment not found:", order.order_id);
+      return res.status(404).json({ error: "Payment not found" });
     }
-    await transaction.save();
+
+    // Update payment status based on webhook type
+    switch(req.body.type) {
+      case 'PAYMENT_SUCCESS_WEBHOOK':
+        paymentDoc.payment_status = 'SUCCESS';
+        paymentDoc.transaction_id = payment.cf_payment_id;
+        paymentDoc.payment_mode = payment.payment_group;
+        paymentDoc.response_message = payment.payment_message;
+        break;
+      
+      case 'PAYMENT_FAILED_WEBHOOK':
+        paymentDoc.payment_status = 'FAILED';
+        paymentDoc.error_message = payment.error_details?.error_description;
+        break;
+      
+      case 'PAYMENT_USER_DROPPED_WEBHOOK':
+        paymentDoc.payment_status = 'CANCELLED';
+        break;
+    }
+
     await paymentDoc.save();
+
+    // Update transaction record
+    if (paymentDoc.transaction) {
+      await Transaction.findByIdAndUpdate(paymentDoc.transaction, {
+        gateway_response: {
+          ...req.body,
+          processed_at: new Date()
+        }
+      });
+    }
+
+    // Send appropriate notifications/emails
+    if (paymentDoc.payment_status === 'SUCCESS') {
+      // Add your notification and email logic here
+      // Similar to your existing implementation
+    }
 
     return res.status(200).json({ success: true });
   } catch (error) {
-    console.error('Webhook error:', error);
-    return res.status(500).json({ error: error.message });
+    console.error("Webhook processing error:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 }
-
 /**
  * getPaymentStatus: Checks and updates the payment status.
  */
@@ -402,7 +442,6 @@ module.exports = {
   getAvailablePaymentMethods: async (req, res) => {
     res.json({ success: true, data: [] });
   },
-  initiatePayment,
   webhookHandler,
   createPayment,
   getPaymentStatus
