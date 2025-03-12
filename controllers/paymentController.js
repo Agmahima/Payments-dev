@@ -363,8 +363,7 @@ async function webhookHandler(req, res) {
 
     // Send appropriate notifications/emails
     if (paymentDoc.payment_status === 'SUCCESS') {
-      // Add your notification and email logic here
-      // Similar to your existing implementation
+      //email and notification logic
     }
 
     return res.status(200).json({ success: true });
