@@ -64,4 +64,3 @@ const PaymentSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 module.exports = vaultDbConnection.model('Payment', PaymentSchema);
-

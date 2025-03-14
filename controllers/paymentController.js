@@ -1,11 +1,12 @@
+
+
 // PaymentService.js
 const axios = require('axios');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const Payment = require('../models/Payment');
 const Transaction = require('../models/Transaction');
-const PaymentMethod = require('../models/paymentMethodSchema'); 
-
+const PaymentMethod=  require('../models/paymentMethodSchema');
 const cashfreeHandler = require('../gateways/cashfree');
 
 // Utility: Generate a unique order id
@@ -295,80 +296,140 @@ async function createPayment(req, res) {
 
 async function webhookHandler(req, res) {
   try {
-    const webhookSignature = req.headers["x-webhook-signature"];
+    const webhookSignature = req.headers["x-webhook-signature"] || 
+                            req.headers["x-webhook-signature-256"];
+
     console.log("Webhook received:", {
       signature: webhookSignature,
-      body: req.body
+      rawBody: req.rawBody
     });
 
-    // In development, you can log but skip verification
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('Webhook signature verification skipped in development');
-    } else {
+    // Verify signature unless explicitly skipped
+    if (process.env.SKIP_WEBHOOK_VERIFICATION !== 'true') {
       if (!webhookSignature) {
+        console.error("Missing webhook signature");
         return res.status(400).json({ error: "Missing webhook signature" });
       }
-      
-      // Verify signature in production
-      const computedSignature = crypto
-        .createHmac("sha256", process.env.CASHFREE_WEBHOOK_SECRET)
-        .update(JSON.stringify(req.body))
-        .digest("base64");
 
-      if (webhookSignature !== computedSignature) {
-        console.error("Invalid signature", { received: webhookSignature, computed: computedSignature });
+      const isValid = cashfreeHandler.verifyWebhookSignature(req.rawBody, webhookSignature);
+      if (!isValid) {
+        console.error("Invalid webhook signature");
         return res.status(400).json({ error: "Invalid signature" });
       }
     }
 
-    const { order, payment } = req.body.data;
-    
-    // Find and update payment record
-    const paymentDoc = await Payment.findById(order.order_id);
-    if (!paymentDoc) {
-      console.error("Payment not found:", order.order_id);
-      return res.status(404).json({ error: "Payment not found" });
+    // Destructure the webhook data
+    const { data: { order, payment, customer_details }, type } = req.body;
+
+    // Find the transaction
+    const transaction = await Transaction.findOne({ payment_id: order.order_id });
+    if (!transaction) {
+      console.error("Transaction not found:", order.order_id);
+      return res.status(404).json({ error: "Transaction not found" });
     }
 
-    // Update payment status based on webhook type
-    switch(req.body.type) {
-      case 'PAYMENT_SUCCESS_WEBHOOK':
-        paymentDoc.payment_status = 'SUCCESS';
-        paymentDoc.transaction_id = payment.cf_payment_id;
-        paymentDoc.payment_mode = payment.payment_group;
-        paymentDoc.response_message = payment.payment_message;
-        break;
-      
-      case 'PAYMENT_FAILED_WEBHOOK':
-        paymentDoc.payment_status = 'FAILED';
-        paymentDoc.error_message = payment.error_details?.error_description;
-        break;
-      
-      case 'PAYMENT_USER_DROPPED_WEBHOOK':
-        paymentDoc.payment_status = 'CANCELLED';
-        break;
-    }
+    // Initialize payment method details
+    let paymentMethodDetails = {};
 
-    await paymentDoc.save();
+    // Update payment method details and save tokenized card if available
+    if (payment.payment_method) {
+      if (payment.payment_method.card) {
+        const cardDetails = payment.payment_method.card;
+        
+        // Update transaction payment method details
+        transaction.transaction_mode = 'CARD';
+        paymentMethodDetails = {
+          card: {
+            channel: cardDetails.channel,
+            card_number: cardDetails.card_number,
+            card_network: cardDetails.card_network,
+            card_type: cardDetails.card_type,
+            card_bank_name: cardDetails.card_bank_name
+          }
+        };
 
-    // Update transaction record
-    if (paymentDoc.transaction) {
-      await Transaction.findByIdAndUpdate(paymentDoc.transaction, {
-        gateway_response: {
-          ...req.body,
-          processed_at: new Date()
+        // Save tokenized card if customer details are available
+        if (customer_details?.customer_id) {
+          const tokenData = {
+            user_id: customer_details.customer_id,
+            method_type: 'CARD',
+            card_token: payment.cf_token_id || `cf_${payment.cf_payment_id}`,
+            card_network: cardDetails.card_network,
+            card_type: cardDetails.card_type,
+            card_last4: cardDetails.card_number.slice(-4),
+            card_bank_name: cardDetails.card_bank_name,
+            gateway: 'CASHFREE',
+            last_used: new Date(),
+            is_default: false
+          };
+
+          // Check if this is the first card for the user
+          const existingCards = await PaymentMethod.countDocuments({
+            user_id: customer_details.customer_id,
+            method_type: 'CARD'
+          });
+          
+          if (existingCards === 0) {
+            tokenData.is_default = true;
+          }
+
+          // Save or update the payment method
+          await PaymentMethod.findOneAndUpdate(
+            { 
+              card_token: tokenData.card_token,
+              gateway: 'CASHFREE'
+            },
+            tokenData,
+            { upsert: true, new: true }
+          );
+
+          console.log('Saved tokenized card:', tokenData.card_last4);
         }
-      });
+      } else if (payment.payment_method.upi) {
+        transaction.transaction_mode = 'UPI';
+        paymentMethodDetails = {
+          upi: {
+            channel: payment.payment_method.upi.channel,
+            upi_id: payment.payment_method.upi.upi_id
+          }
+        };
+      } else if (payment.payment_method.netbanking) {
+        transaction.transaction_mode = 'NET_BANKING';
+        paymentMethodDetails = {
+          netbanking: {
+            bank_name: payment.payment_method.netbanking.bank_name
+          }
+        };
+      }
     }
 
-    // Send appropriate notifications/emails
-    if (paymentDoc.payment_status === 'SUCCESS') {
-      //email and notification logic
-    }
+    // Update transaction details
+    transaction.payment_method_details = paymentMethodDetails;
+    transaction.transaction_id = payment.cf_payment_id;
+    transaction.transaction_status = payment.payment_status === 'SUCCESS' ? 'SUCCESS' : 'FAILED';
+    transaction.gateway_response = req.body;
+    transaction.amount = payment.payment_amount;
+    transaction.currency = payment.payment_currency;
 
+    await transaction.save();
+
+    // Update payment status
+    await Payment.findByIdAndUpdate(order.order_id, {
+      payment_status: payment.payment_status,
+      updated_by: transaction.created_by
+    });
+
+    console.log("Webhook processed successfully:", {
+      orderId: order.order_id,
+      status: payment.payment_status,
+      amount: payment.payment_amount,
+      paymentMethod: transaction.transaction_mode
+    });
+  
     return res.status(200).json({ success: true });
+  
   } catch (error) {
-    console.error("Webhook processing error:", error);
+    console.error("Webhook processing error:", error, error.stack);
     return res.status(500).json({ error: "Internal server error" });
   }
 }

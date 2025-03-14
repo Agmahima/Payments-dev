@@ -69,6 +69,7 @@ const verifyWebhookSignature = (rawBody, signature) => {
   const computedSignature = crypto.createHmac("sha256", CASHFREE_SECRET_KEY)
       .update(rawBody)
       .digest("base64");
+  console.log("Computed signature:", computedSignature);
   return signature === computedSignature;
 };
 
