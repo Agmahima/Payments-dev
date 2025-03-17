@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 const Payment = require('../models/Payment');
 const Transaction = require('../models/Transaction');
 const PaymentMethod=  require('../models/paymentMethodSchema');
-const cashfreeHandler = require('../gateways/cashfree');
+const cashfreeGateway = require('../gateways/cashfree');
 const paymentConfig = require('../config/payment');
 const razorpayGateway = require('../gateways/razorpay');
 const paymentEventHandler = require('../services/paymentEventHandler');
@@ -188,7 +188,7 @@ async function createPayment(req, res) {
     };
 
     // Call Cashfree API through your handler
-    const result = await cashfreeHandler.initiatePayment(payload);
+    const result = await cashfreeGateway.initiatePayment(payload);
     if (!result.success) {
       await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
         payment_status: 'FAILED',
@@ -313,7 +313,7 @@ async function webhookHandler(req, res) {
         return res.status(400).json({ error: "Missing webhook signature" });
       }
 
-      const isValid = cashfreeHandler.verifyWebhookSignature(req.rawBody, webhookSignature);
+      const isValid = cashfreeGateway.verifyWebhookSignature(req.rawBody, webhookSignature);
       if (!isValid) {
         console.error("Invalid webhook signature");
         return res.status(400).json({ error: "Invalid signature" });
@@ -456,7 +456,7 @@ async function getPaymentStatus(req, res) {
       });
     }
     if (payment.transaction && payment.transaction.gateway_response && payment.transaction.gateway_response.paymentId) {
-      const result = await cashfreeHandler.getPaymentStatus(
+      const result = await cashfreeGateway.getPaymentStatus(
         payment._id.toString(),
         payment.transaction.gateway_response.paymentId
       );
@@ -705,7 +705,7 @@ exports.createPayment = async (req, res) => {
             subscription_type: subscriptionType
           };
           
-          gatewayResponse = await cashfreeHandler.createSubscription(subscriptionPayload);
+          gatewayResponse = await cashfreeGateway.createSubscription(subscriptionPayload);
           
           // Update payment with subscription info
           if (gatewayResponse.success) {
@@ -717,7 +717,7 @@ exports.createPayment = async (req, res) => {
           }
         } else {
           // Handle Cashfree one-time payment
-          gatewayResponse = await cashfreeHandler.initiatePayment(cashfreePayload);
+          gatewayResponse = await cashfreeGateway.initiatePayment(cashfreePayload);
         }
     }
     
@@ -807,7 +807,7 @@ exports.getPaymentStatus = async (req, res) => {
         transaction ? transaction.transaction_id : null
       );
     } else if (payment.payment_gateway === 'CASHFREE') {
-      gatewayResponse = await cashfreeHandler.getPaymentStatus(
+      gatewayResponse = await cashfreeGateway.getPaymentStatus(
         transaction ? transaction.transaction_id : payment._id.toString()
       );
     } else {
@@ -888,7 +888,7 @@ exports.handleWebhook = async (req, res) => {
     if (gateway.toLowerCase() === 'razorpay') {
       isValid = razorpayGateway.verifyWebhookSignature(event, signature);
     } else if (gateway.toLowerCase() === 'cashfree') {
-      isValid = cashfreeHandler.verifyWebhookSignature(event, signature);
+      isValid = cashfreeGateway.verifyWebhookSignature(event, signature);
     }
     
     if (!isValid) {
@@ -924,7 +924,7 @@ exports.handleWebhook = async (req, res) => {
       }
     } else if (gateway.toLowerCase() === 'cashfree') {
       // Process Cashfree webhook
-      const webhookData = cashfreeHandler.processWebhookData(event);
+      const webhookData = cashfreeGateway.processWebhookData(event);
       
       if (webhookData.eventType === 'PAYMENT_SUCCESS') {
         await updatePaymentStatus(webhookData.orderId, 'SUCCESS');
