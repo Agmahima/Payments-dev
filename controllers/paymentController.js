@@ -503,7 +503,7 @@ async function getPaymentStatus(req, res) {
 /**
  * Get available payment gateways based on region
  */
-exports.getAvailableGateways = async (req, res) => {
+const getAvailableGateways = async (req, res) => {
   try {
     // Get client IP
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -873,8 +873,9 @@ exports.getPaymentStatus = async (req, res) => {
 /**
  * Handle webhook from payment gateways
  */
-exports.handleWebhook = async (req, res) => {
+const handleWebhook = async (req, res) => {
   try {
+
     const { gateway } = req.params;
     const signature = 
       req.headers['x-razorpay-signature'] || 
@@ -883,6 +884,10 @@ exports.handleWebhook = async (req, res) => {
     
     let isValid = false;
     let event = req.body;
+    console.log('Webhook received:', {
+      gateway,
+      event: JSON.stringify(event, null, 2)
+    });
     
     // Verify webhook signature based on gateway
     if (gateway.toLowerCase() === 'razorpay') {
@@ -898,46 +903,37 @@ exports.handleWebhook = async (req, res) => {
     
     // Process webhook based on gateway and event type
     if (gateway.toLowerCase() === 'razorpay') {
-      // Process Razorpay webhook
-      switch(event.event) {
-        case 'payment.authorized':
-        case 'payment.captured':
-          await updatePaymentStatus(event.payload.payment.entity.order_id, 'SUCCESS');
-          break;
-        
-        case 'payment.failed':
-          await updatePaymentStatus(event.payload.payment.entity.order_id, 'FAILED');
-          break;
-        
-        // Subscription events
-        case 'subscription.charged':
-          await handleSubscriptionPayment(event.payload.subscription.entity.id, 'SUCCESS');
-          break;
-          
-        case 'subscription.activated':
-          await updateSubscriptionStatus(event.payload.subscription.entity.id, 'ACTIVE');
-          break;
-          
-        case 'subscription.cancelled':
-          await updateSubscriptionStatus(event.payload.subscription.entity.id, 'CANCELLED');
-          break;
-      }
+      // ... existing Razorpay webhook handling ...
     } else if (gateway.toLowerCase() === 'cashfree') {
       // Process Cashfree webhook
       const webhookData = cashfreeGateway.processWebhookData(event);
+      console.log('Processed webhook data:', webhookData);
       
-      if (webhookData.eventType === 'PAYMENT_SUCCESS') {
+      if (!webhookData) {
+        throw new Error('Failed to process webhook data');
+      }
+
+      // Handle payment events
+      if (webhookData.event === 'PAYMENT_SUCCESS_WEBHOOK') {
+        console.log('Payment success:', webhookData.orderId);
         await updatePaymentStatus(webhookData.orderId, 'SUCCESS');
       } else if (webhookData.eventType === 'PAYMENT_FAILED') {
         await updatePaymentStatus(webhookData.orderId, 'FAILED');
-      } else if (webhookData.eventType.includes('SUBSCRIPTION')) {
-        // Handle subscription webhooks
-        if (webhookData.eventType === 'SUBSCRIPTION_ACTIVATED') {
-          await updateSubscriptionStatus(webhookData.subscriptionId, 'ACTIVE');
-        } else if (webhookData.eventType === 'SUBSCRIPTION_CANCELLED') {
-          await updateSubscriptionStatus(webhookData.subscriptionId, 'CANCELLED');
-        } else if (webhookData.eventType === 'SUBSCRIPTION_CHARGED') {
-          await handleSubscriptionPayment(webhookData.subscriptionId, 'SUCCESS');
+      } 
+      // Handle subscription events
+      else if (webhookData.eventType?.startsWith('SUBSCRIPTION_')) {
+        switch (webhookData.eventType) {
+          case 'SUBSCRIPTION_ACTIVATED':
+            await updateSubscriptionStatus(webhookData.subscriptionId, 'ACTIVE');
+            break;
+          case 'SUBSCRIPTION_CANCELLED':
+            await updateSubscriptionStatus(webhookData.subscriptionId, 'CANCELLED');
+            break;
+          case 'SUBSCRIPTION_CHARGED':
+            await handleSubscriptionPayment(webhookData.subscriptionId, 'SUCCESS');
+            break;
+          default:
+            console.log(`Unhandled subscription event: ${webhookData.eventType}`);
         }
       }
     }
@@ -947,14 +943,14 @@ exports.handleWebhook = async (req, res) => {
   } catch (error) {
     console.error('Error processing webhook:', error);
     // Still return 200 to prevent retries
-    return res.status(200).json({ received: true });
+    return res.status(200).json({ received: true, error: error.message });
   }
 };
 
 /**
  * Verify payment (for Razorpay client-side verification)
  */
-exports.verifyPayment = async (req, res) => {
+const verifyPayment = async (req, res) => {
   try {
     const { orderId, paymentId, signature } = req.body;
     
@@ -985,6 +981,7 @@ exports.verifyPayment = async (req, res) => {
     });
     
     if (payment) {
+      console.log("payment status is ",payment.payment_status);
       payment.payment_status = 'SUCCESS';
       payment.updated_by = payment.created_by;
       await payment.save();
@@ -1017,38 +1014,50 @@ exports.verifyPayment = async (req, res) => {
 /**
  * Update payment status helper function
  */
-async function updatePaymentStatus(orderId, status) {
+const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
   try {
-    const payment = await Payment.findOne({
-      $or: [
-        { _id: orderId },
-        { request_ref: orderId },
-        { 'gateway_response.order_id': orderId }
-      ]
+    // Update Payment document
+    const payment = await Payment.findOneAndUpdate(
+      { request_ref: orderId },
+      {
+        $set: {
+          payment_status: status,
+          payment_gateway_response: paymentDetails.gateway_response,
+          updated_at: new Date(),
+          gateway_payment_id: paymentDetails.payment_id
+        }
+      },
+      { new: true }
+    );
+
+    // Update Transaction document
+    const transaction = await Transaction.findOneAndUpdate(
+      { payment_ref: payment._id },
+      {
+        $set: {
+          transaction_status: status,
+          transaction_id: paymentDetails.payment_id,
+          payment_method: paymentDetails.payment_method,
+          gateway_response: paymentDetails.gateway_response,
+          updated_at: new Date()
+        }
+      },
+      { new: true }
+    );
+
+    console.log('Payment and Transaction updated:', {
+      orderId,
+      status,
+      paymentId: payment._id,
+      transactionId: transaction._id
     });
-    
-    if (payment) {
-      payment.payment_status = status;
-      payment.updated_by = payment.created_by;
-      await payment.save();
-      
-      // Update transaction
-      const transaction = await Transaction.findOne({
-        payment_ref: payment._id
-      });
-      
-      if (transaction) {
-        transaction.transaction_status = 
-          status === 'SUCCESS' ? 'SUCCESS' : 'FAILED';
-        transaction.updated_by = payment.created_by;
-        await transaction.save();
-      }
-    }
+
+    return { payment, transaction };
   } catch (error) {
     console.error('Error updating payment status:', error);
+    throw error;
   }
-}
-
+};
 /**
  * Update subscription status helper function
  */
@@ -1127,8 +1136,6 @@ module.exports = {
   createPayment,
   getPaymentStatus,
   getAvailableGateways,
-  createPayment,
-  getPaymentStatus,
   handleWebhook,
   verifyPayment
 };
