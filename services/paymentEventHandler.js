@@ -279,14 +279,11 @@ async function processPaymentWithGateway(gateway, payment, customerDetails, desc
 /**
  * Store the transaction record
  */
-async function storeTransaction(paymentId, gateway, gatewayResult, userId) {
-  // const userId = "65f123456789abcdef123456";
-
-
+async function storeTransaction(paymentId, gateway, gatewayResult, userId="65f123456789abcdef123456") {
   const transaction = new Transaction({
     payment_id: mongoose.Types.ObjectId(paymentId),
-    transaction_mode: gatewayResult.paymentSessionId ? 'ONLINE' : 'UNKNOWN',
-    gateway_used: gateway,
+    transaction_mode: 'ONLINE',
+    gateway_used: gateway || 'CASHFREE',
     gateway_response: gatewayResult.gatewayResponse || {},
     created_by: mongoose.Types.ObjectId(userId),
     updated_by: mongoose.Types.ObjectId(userId)

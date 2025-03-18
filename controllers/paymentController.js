@@ -875,66 +875,113 @@ exports.getPaymentStatus = async (req, res) => {
  */
 const handleWebhook = async (req, res) => {
   try {
-
     const { gateway } = req.params;
     const signature = 
       req.headers['x-razorpay-signature'] || 
       req.headers['x-cashfree-signature'] ||
-      req.headers['x-webhook-signature'];
+      req.headers['x-webhook-signature'] ||
+      req.headers['x-webhook-signature-256'];
     
-    let isValid = false;
-    let event = req.body;
-    console.log('Webhook received:', {
-      gateway,
-      event: JSON.stringify(event, null, 2)
+    // Log the incoming webhook
+    console.log(`Webhook received from ${gateway}:`, {
+      signature: signature ? 'Present' : 'Missing',
+      body: typeof req.body === 'string' ? 'String payload' : 'JSON payload'
     });
     
-    // Verify webhook signature based on gateway
-    if (gateway.toLowerCase() === 'razorpay') {
-      isValid = razorpayGateway.verifyWebhookSignature(event, signature);
-    } else if (gateway.toLowerCase() === 'cashfree') {
-      isValid = cashfreeGateway.verifyWebhookSignature(event, signature);
-    }
+    // Skip signature verification in development if configured
+    let isValid = process.env.SKIP_WEBHOOK_VERIFICATION === 'true';
     
     if (!isValid) {
-      console.error(`Invalid signature for ${gateway} webhook`);
-      return res.status(400).json({ error: 'Invalid signature' });
+      // Verify webhook signature based on gateway
+      if (gateway.toLowerCase() === 'razorpay') {
+        isValid = razorpayGateway.verifyWebhookSignature(req.body, signature);
+      } else if (gateway.toLowerCase() === 'cashfree') {
+        isValid = cashfreeGateway.verifyWebhookSignature(req.body, signature);
+      }
+      
+      if (!isValid) {
+        console.error(`Invalid signature for ${gateway} webhook`);
+        return res.status(400).json({ error: 'Invalid signature' });
+      }
     }
     
-    // Process webhook based on gateway and event type
+    // Process webhook based on gateway type
     if (gateway.toLowerCase() === 'razorpay') {
-      // ... existing Razorpay webhook handling ...
-    } else if (gateway.toLowerCase() === 'cashfree') {
-      // Process Cashfree webhook
-      const webhookData = cashfreeGateway.processWebhookData(event);
-      console.log('Processed webhook data:', webhookData);
+      // Process Razorpay webhook (implement or keep existing code)
+      const webhookData = await razorpayGateway.processWebhookData(req.body);
+      // Handle Razorpay-specific logic
+      // ...
+    } 
+    else if (gateway.toLowerCase() === 'cashfree') {
+      // Process Cashfree webhook data
+      const webhookData = cashfreeGateway.processWebhookData(req.body);
+      console.log('Processed Cashfree webhook data:', webhookData);
       
       if (!webhookData) {
-        throw new Error('Failed to process webhook data');
+        throw new Error('Failed to process Cashfree webhook data');
       }
 
-      // Handle payment events
-      if (webhookData.event === 'PAYMENT_SUCCESS_WEBHOOK') {
-        console.log('Payment success:', webhookData.orderId);
-        await updatePaymentStatus(webhookData.orderId, 'SUCCESS');
-      } else if (webhookData.eventType === 'PAYMENT_FAILED') {
-        await updatePaymentStatus(webhookData.orderId, 'FAILED');
+      // Extract key information
+      const { event, orderId, paymentId, amount, status, paymentMethod, subscriptionId } = webhookData;
+      
+      // Handle different event types
+      if (event === 'payment.success' || event === 'PAYMENT_SUCCESS_WEBHOOK') {
+        console.log(`Payment success for order ${orderId}, method: ${paymentMethod}, amount: ${amount}`);
+        
+        // Create payment details object with all necessary information
+        const paymentDetails = {
+          payment_id: paymentId,
+          payment_method: paymentMethod || 'OTHER',
+          amount: amount,
+          gateway_response: req.body
+        };
+        
+        // Update payment status with all details
+        await updatePaymentStatus(orderId, 'SUCCESS', paymentDetails);
       } 
-      // Handle subscription events
-      else if (webhookData.eventType?.startsWith('SUBSCRIPTION_')) {
-        switch (webhookData.eventType) {
-          case 'SUBSCRIPTION_ACTIVATED':
-            await updateSubscriptionStatus(webhookData.subscriptionId, 'ACTIVE');
+      else if (event === 'payment.failed' || event === 'PAYMENT_FAILED') {
+        console.log(`Payment failed for order ${orderId}`);
+        
+        const paymentDetails = {
+          payment_id: paymentId,
+          payment_method: paymentMethod || 'OTHER',
+          amount: amount,
+          gateway_response: req.body
+        };
+        
+        await updatePaymentStatus(orderId, 'FAILED', paymentDetails);
+      }
+      // Handle subscription-related events
+      else if (event && event.startsWith('subscription.')) {
+        switch (event) {
+          case 'subscription.created':
+            await updateSubscriptionStatus(subscriptionId, 'CREATED');
             break;
-          case 'SUBSCRIPTION_CANCELLED':
-            await updateSubscriptionStatus(webhookData.subscriptionId, 'CANCELLED');
+          case 'subscription.activated':
+            await updateSubscriptionStatus(subscriptionId, 'ACTIVE');
             break;
-          case 'SUBSCRIPTION_CHARGED':
-            await handleSubscriptionPayment(webhookData.subscriptionId, 'SUCCESS');
+          case 'subscription.cancelled':
+            await updateSubscriptionStatus(subscriptionId, 'CANCELLED');
+            break;
+          case 'subscription.payment.success':
+            await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
+              payment_id: paymentId,
+              payment_method: paymentMethod,
+              amount: amount
+            });
+            break;
+          case 'subscription.payment.failed':
+            await handleSubscriptionPayment(subscriptionId, 'FAILED', {
+              payment_id: paymentId,
+              payment_method: paymentMethod,
+              amount: amount
+            });
             break;
           default:
-            console.log(`Unhandled subscription event: ${webhookData.eventType}`);
+            console.log(`Unhandled subscription event: ${event}`);
         }
+      } else {
+        console.log(`Unhandled event type: ${event}`);
       }
     }
     
@@ -942,7 +989,7 @@ const handleWebhook = async (req, res) => {
     return res.status(200).json({ received: true });
   } catch (error) {
     console.error('Error processing webhook:', error);
-    // Still return 200 to prevent retries
+    // Still return 200 to prevent retries from the payment gateway
     return res.status(200).json({ received: true, error: error.message });
   }
 };
@@ -1016,6 +1063,12 @@ const verifyPayment = async (req, res) => {
  */
 const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
   try {
+    console.log(`Updating payment status for order ${orderId} to ${status}`);
+    
+    if (!orderId) {
+      throw new Error('Order ID is required to update payment status');
+    }
+
     // Update Payment document
     const payment = await Payment.findOneAndUpdate(
       { request_ref: orderId },
@@ -1030,6 +1083,13 @@ const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
       { new: true }
     );
 
+    if (!payment) {
+      console.error(`Payment record not found for order ID: ${orderId}`);
+      return null;
+    }
+
+    console.log(`Payment ${payment._id} updated to status: ${status}`);
+
     // Update Transaction document
     const transaction = await Transaction.findOneAndUpdate(
       { payment_ref: payment._id },
@@ -1037,7 +1097,7 @@ const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
         $set: {
           transaction_status: status,
           transaction_id: paymentDetails.payment_id,
-          payment_method: paymentDetails.payment_method,
+          transaction_mode: paymentDetails.payment_method || 'OTHER',
           gateway_response: paymentDetails.gateway_response,
           updated_at: new Date()
         }
@@ -1045,12 +1105,11 @@ const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
       { new: true }
     );
 
-    console.log('Payment and Transaction updated:', {
-      orderId,
-      status,
-      paymentId: payment._id,
-      transactionId: transaction._id
-    });
+    if (!transaction) {
+      console.error(`Transaction record not found for payment ID: ${payment._id}`);
+    } else {
+      console.log(`Transaction ${transaction._id} updated with mode: ${paymentDetails.payment_method || 'OTHER'}`);
+    }
 
     return { payment, transaction };
   } catch (error) {
@@ -1081,7 +1140,7 @@ async function updateSubscriptionStatus(subscriptionId, status) {
 /**
  * Handle subscription payment
  */
-async function handleSubscriptionPayment(subscriptionId, status) {
+async function handleSubscriptionPayment(subscriptionId, status, paymentDetails = {}) {
   try {
     // Find the original subscription payment
     const originalPayment = await Payment.findOne({

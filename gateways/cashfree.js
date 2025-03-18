@@ -156,24 +156,49 @@ const verifyWebhookSignature = (payload, signature) => {
   return true;
 };
 
+const mapPaymentMethod = (paymentData) => {
+  if (!paymentData || !paymentData.payment_method) return 'OTHER';
+  
+  if (paymentData.payment_method.card) return 'CARD';
+  if (paymentData.payment_method.upi) return 'UPI';
+  if (paymentData.payment_method.netbanking) return 'NET_BANKING';
+  if (paymentData.payment_method.app) return 'WALLET';
+  
+  return 'OTHER';
+};
 /**
  * Process webhook data from Cashfree
  */
 const processWebhookData = (payload) => {
   try {
+    // Handle string payload (happens in some webhook integrations)
+    if (typeof payload === 'string') {
+      payload = JSON.parse(payload);
+    }
+    
     const data = payload.data;
     const eventType = payload.type;
     
     let event, orderId, paymentId, amount, status, subscriptionId;
     console.log("Processing Cashfree webhook data:", eventType);
-    console.log(payload);
+    console.log(data);
     
     switch (eventType) {
+      case 'PAYMENT_SUCCESS_WEBHOOK':
+        event = 'payment.success';
+        orderId = data.order.order_id;
+        paymentId = data.payment.cf_payment_id;
+        amount = data.payment.payment_amount || data.order.order_amount;
+        paymentMethod = mapPaymentMethod(data.payment);
+        status = 'SUCCESS';
+        break;
+        
       case 'ORDER_PAID':
         event = 'payment.success';
         orderId = data.order.order_id;
         paymentId = data.payment.cf_payment_id;
         amount = data.order.order_amount;
+        paymentMethod = mapPaymentMethod(data.payment);
         status = 'SUCCESS';
         break;
         
@@ -182,6 +207,7 @@ const processWebhookData = (payload) => {
         orderId = data.order.order_id;
         paymentId = data.payment.cf_payment_id;
         amount = data.order.order_amount;
+        paymentMethod = mapPaymentMethod(data.payment);
         status = 'FAILED';
         break;
         
@@ -189,6 +215,7 @@ const processWebhookData = (payload) => {
         event = 'subscription.created';
         subscriptionId = data.subscription.cf_subscription_id;
         orderId = data.subscription.subscription_id;
+        paymentMethod = mapPaymentMethod(data.payment);
         status = 'CREATED';
         break;
         
@@ -196,6 +223,7 @@ const processWebhookData = (payload) => {
         event = 'subscription.activated';
         subscriptionId = data.subscription.cf_subscription_id;
         orderId = data.subscription.subscription_id;
+        paymentMethod = mapPaymentMethod(data.payment);
         status = 'ACTIVE';
         break;
         
@@ -204,6 +232,7 @@ const processWebhookData = (payload) => {
         subscriptionId = data.subscription.cf_subscription_id;
         orderId = data.payment.order_id;
         paymentId = data.payment.cf_payment_id;
+        paymentMethod = mapPaymentMethod(data.payment);
         amount = data.payment.amount;
         status = 'SUCCESS';
         break;
@@ -213,6 +242,7 @@ const processWebhookData = (payload) => {
         subscriptionId = data.subscription.cf_subscription_id;
         orderId = data.payment.order_id;
         paymentId = data.payment.cf_payment_id;
+        paymentMethod = mapPaymentMethod(data.payment);
         amount = data.payment.amount;
         status = 'FAILED';
         break;
@@ -221,12 +251,22 @@ const processWebhookData = (payload) => {
         event = 'subscription.cancelled';
         subscriptionId = data.subscription.cf_subscription_id;
         orderId = data.subscription.subscription_id;
+        paymentMethod = mapPaymentMethod(data.payment);
         status = 'CANCELLED';
         break;
         
       default:
         event = eventType;
     }
+    
+    console.log("Processed webhook data output:", {
+      event,
+      orderId,
+      paymentId,
+      amount,
+      status,
+      subscriptionId
+    });
     
     return {
       event,
