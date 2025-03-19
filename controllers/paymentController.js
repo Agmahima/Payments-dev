@@ -928,6 +928,55 @@ const handleWebhook = async (req, res) => {
       if (event === 'payment.success' || event === 'PAYMENT_SUCCESS_WEBHOOK') {
         console.log(`Payment success for order ${orderId}, method: ${paymentMethod}, amount: ${amount}`);
         
+        // Check for card details to tokenize
+        if (req.body.data && req.body.data.payment && req.body.data.payment.payment_method && 
+          req.body.data.payment.payment_method.card && req.body.data.customer_details) {
+        
+        const payment = req.body.data.payment;
+        const cardDetails = payment.payment_method.card;
+        const customer_details = req.body.data.customer_details;
+        
+        // Save tokenized card if customer details are available
+        if (customer_details?.customer_id) {
+          
+          const tokenData = {
+            user_id: customer_details.customer_id,
+            method_type: 'CARD',
+            card_token: payment.cf_token_id || `cf_${payment.cf_payment_id}`,
+            card_network: cardDetails.card_network,
+            card_type: cardDetails.card_type,
+            card_last4: cardDetails.card_number.slice(-4),
+            card_bank_name: cardDetails.card_bank_name,
+            gateway: 'CASHFREE',
+            last_used: new Date(),
+            is_default: false
+          };
+
+          // Check if this is the first card for the user
+          const existingCards = await PaymentMethod.countDocuments({
+            user_id: customer_details.customer_id,
+            method_type: 'CARD'
+          });
+          
+          if (existingCards === 0) {
+            tokenData.is_default = true;
+          }
+
+          // Save or update the payment method
+          await PaymentMethod.findOneAndUpdate(
+            { 
+              card_token: tokenData.card_token,
+              gateway: 'CASHFREE'
+            },
+            tokenData,
+            { upsert: true, new: true }
+          );
+
+          console.log('Saved tokenized card:', tokenData.card_last4);
+        }
+      }
+
+
         // Create payment details object with all necessary information
         const paymentDetails = {
           payment_id: paymentId,
@@ -1071,7 +1120,7 @@ const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
 
     // Update Payment document
     const payment = await Payment.findOneAndUpdate(
-      { request_ref: orderId },
+      { _id: orderId },
       {
         $set: {
           payment_status: status,
@@ -1092,7 +1141,7 @@ const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
 
     // Update Transaction document
     const transaction = await Transaction.findOneAndUpdate(
-      { payment_ref: payment._id },
+      { payment_id: payment._id },
       {
         $set: {
           transaction_status: status,
