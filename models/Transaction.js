@@ -4,8 +4,8 @@ const { vaultDbConnection } = require('../dbConnections');
 const TransactionSchema = new mongoose.Schema({
   transaction_mode: {
     type: String,
-    enum: ['UPI', 'NET_BANKING', 'WALLET', 'CARD', 'OTHER'],
-    default: 'OTHER'
+    enum: ['UPI', 'NET_BANKING', 'WALLET', 'CARD', 'OTHER','PENDING'],
+    default: 'PENDING'
   },
   payment_id: {
     type: mongoose.Schema.Types.ObjectId,

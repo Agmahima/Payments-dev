@@ -9,6 +9,7 @@ const PaymentSchema = new mongoose.Schema({
   },
   payment_purpose: {
     type: String,
+    enum: ['Investment', 'Subscription', 'Service'],
     required: true
   },
   payment_amount: {

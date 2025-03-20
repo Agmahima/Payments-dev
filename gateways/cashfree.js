@@ -179,7 +179,7 @@ const processWebhookData = (payload) => {
     const data = payload.data;
     const eventType = payload.type;
     
-    let event, orderId, paymentId, amount, status, subscriptionId;
+    let event, orderId, paymentId, amount, status, subscriptionId,paymentMethod;
     console.log("Processing Cashfree webhook data:", eventType);
     console.log(data);
     
@@ -189,8 +189,38 @@ const processWebhookData = (payload) => {
         orderId = data.order.order_id;
         paymentId = data.payment.cf_payment_id;
         amount = data.payment.payment_amount || data.order.order_amount;
-        paymentMethod = mapPaymentMethod(data.payment);
         status = 'SUCCESS';
+        // Map payment method based on payment_group or payment_method
+        if (data.payment.payment_method) {
+          if (data.payment.payment_method.card) {
+            paymentMethod = 'CARD';
+          } else if (data.payment.payment_method.upi) {
+            paymentMethod = 'UPI';
+          } else if (data.payment.payment_method.netbanking) {
+            paymentMethod = 'NET_BANKING';
+          } else if (data.payment.payment_method.app) {
+            paymentMethod = 'WALLET';
+          }
+        } else if (data.payment.payment_group) {
+          switch(data.payment.payment_group) {
+            case 'debit_card':
+            case 'credit_card':
+              paymentMethod = 'CARD';
+              break;
+            case 'upi':
+              paymentMethod = 'UPI';
+              break;
+            case 'netbanking':
+              paymentMethod = 'NET_BANKING';
+              break;
+            case 'wallet':
+              paymentMethod = 'WALLET';
+              break;
+            default:
+              paymentMethod = 'OTHER';
+          }
+        }
+        
         break;
         
       case 'ORDER_PAID':

@@ -121,8 +121,7 @@ async function createPayment(req, res) {
       customer_phone,
       description,
       return_url,           // e.g., https://investment.nucleohq.com/payment-status?order_id={order_id}
-      notify_url,           // e.g., https://api.nucleohq.com/api/v1/payment/webhook
-      paymentMethod,        // "Debit Card", "upi", "net_banking", etc.
+      notify_url,           // e.g., https://api.nucleohq.com/api/v1/payment/webhook,        // "Debit Card", "upi", "net_banking", etc.
       payment_details,      // Object with method-specific details
       isSubscription,       // boolean flag
       subscriptionType      // e.g., "monthly", "yearly", "auto-debit", "one-time"
@@ -135,7 +134,7 @@ async function createPayment(req, res) {
       console.log("Missing required fields:", req.body);
       return res.status(400).json({ success: false, message: 'Missing required fields' });
     }
-
+    let paymentMethod ="";
     // Payment method–specific validations
     if (paymentMethod === "Debit Card") {
       if (!payment_details?.card_number || !payment_details?.expiry || !payment_details?.cvv) {
@@ -150,6 +149,10 @@ async function createPayment(req, res) {
         return res.status(400).json({ success: false, message: "Bank code is required" });
       }
     }
+    else{
+      console.log("Payment method not defined yet");
+    }
+
 
     // Create a Payment record (using MongoDB _id as  order id for Cashfree)
     const orderId = generateOrderId();
@@ -200,7 +203,7 @@ async function createPayment(req, res) {
     // Create a Transaction record
     const TransactionModel = Transaction;
     const transactionRecord = new TransactionModel({
-      transaction_mode: paymentMethod,
+      transaction_mode: 'PENDING', // Will be updated in webhook
       payment_id: paymentRecord._id,
       gateway_used: 'CASHFREE',
       gateway_response: result.gatewayResponse,
@@ -402,7 +405,12 @@ async function webhookHandler(req, res) {
             bank_name: payment.payment_method.netbanking.bank_name
           }
         };
+      } else if (payment.payment_method.wallet) {
+        transaction.transaction_mode = 'WALLET';
+      } else {
+        transaction.transaction_mode = 'OTHER';
       }
+      await transaction.save();
     }
 
     // Update transaction details
@@ -1112,6 +1120,7 @@ const verifyPayment = async (req, res) => {
  */
 const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
   try {
+    console.log("PD",paymentDetails);
     console.log(`Updating payment status for order ${orderId} to ${status}`);
     
     if (!orderId) {
@@ -1139,14 +1148,29 @@ const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
 
     console.log(`Payment ${payment._id} updated to status: ${status}`);
 
-    // Update Transaction document
+    // Get payment method from Cashfree response
+    let paymentMethod = 'OTHER';
+    if (paymentDetails.gateway_response?.data?.payment?.payment_method) {
+      const payment = paymentDetails.gateway_response.data.payment;
+      if (payment.payment_method.card) {
+        paymentMethod = 'CARD';
+      } else if (payment.payment_method.upi) {
+        paymentMethod = 'UPI';
+      } else if (payment.payment_method.netbanking) {
+        paymentMethod = 'NET_BANKING';
+      } else if (payment.payment_method.app) {
+        paymentMethod = 'WALLET';
+      }
+    }
+
+    // Update Transaction document with correct payment method
     const transaction = await Transaction.findOneAndUpdate(
       { payment_id: payment._id },
       {
         $set: {
           transaction_status: status,
           transaction_id: paymentDetails.payment_id,
-          transaction_mode: paymentDetails.payment_method || 'OTHER',
+          transaction_mode: paymentMethod, // Use the mapped payment method
           gateway_response: paymentDetails.gateway_response,
           updated_at: new Date()
         }
@@ -1157,7 +1181,7 @@ const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
     if (!transaction) {
       console.error(`Transaction record not found for payment ID: ${payment._id}`);
     } else {
-      console.log(`Transaction ${transaction._id} updated with mode: ${paymentDetails.payment_method || 'OTHER'}`);
+      console.log(`Transaction ${transaction._id} updated with mode: ${paymentMethod}`);
     }
 
     return { payment, transaction };
