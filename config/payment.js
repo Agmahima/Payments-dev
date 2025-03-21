@@ -10,9 +10,7 @@ module.exports = {
   cashfree: {
     enabled: true,
     name: 'Cashfree',
-    baseUrl: process.env.NODE_ENV === 'production' 
-      ? 'https://api.cashfree.com/pg'
-      : 'https://sandbox.cashfree.com/pg',
+    baseUrl: 'https://api.cashfree.com/pg',
     appId: process.env.CASHFREE_APP_ID,
     secretKey: process.env.CASHFREE_SECRET_KEY,
     supportedMethods: ['card', 'upi', 'netbanking', 'wallet','other'],

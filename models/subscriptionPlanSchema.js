@@ -22,6 +22,8 @@ const subscriptionPlanSchema = new mongoose.Schema(
     free_trial_days: { type: Number, default: 0 }, // Free trial option
     discount: { type: Number, default: 0 }, // Discount option
     categories: { type: [categorySchema], default: [] },
+    plan_id: { type: String, required: true, unique: true }
+
   },
   {
     timestamps: {
