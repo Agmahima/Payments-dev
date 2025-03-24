@@ -478,24 +478,107 @@ exports.cancelSubscription = async (req, res) => {
   }
 }
 
-exports.updateSubscription=async(req,res)=>{
-  try{
-    const subscription=await UserSubscription.findById(req.params.id);
-    if(!subscription){
+exports.updateSubscription = async (req, res) => {
+  try {
+    const subscriptionId = req.params.id || req.params.subscriptionId;
+    const subscription = await UserSubscription.findById(subscriptionId);
+    
+    if (!subscription) {
       return res.status(404).json({
-        success:false,
-        error:'Subscription not found'
+        success: false,
+        error: 'Subscription not found'
       });
     }
-  }catch(error){
-      console.error('Error updating subscription:',error);
-      res.status(500).json({
-        success:false,
-        error:error.message
-      });
+    
+    // Fields that can be updated
+    const updatableFields = [
+      'current_tier', 'valid_until', 'status', 'used_benefits'
+    ];
+    
+    // Build update object
+    const updateData = {};
+    updatableFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+    
+    // Always update timestamp
+    updateData.updated_at = new Date();
+    
+    // Apply updates
+    const updatedSubscription = await UserSubscription.findByIdAndUpdate(
+      subscriptionId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+    
+    // For Razorpay updates, we need the Razorpay subscription ID
+    if (subscription.payment_transaction_id) {
+      try {
+        // Handle different status updates
+        if (req.body.status === 'cancelled') {
+          // Cancel subscription in Razorpay
+          await razorpay.subscriptions.cancel(subscription.payment_transaction_id, {
+            cancel_at_cycle_end: req.body.cancel_at_cycle_end || false
+          });
+          console.log(`Cancelled Razorpay subscription: ${subscription.payment_transaction_id}`);
+        } 
+        else if (req.body.status === 'paused' || req.body.status === 'halted') {
+          // Pause subscription in Razorpay
+          // Check if pause method exists
+          if (typeof razorpay.subscriptions.pause === 'function') {
+            await razorpay.subscriptions.pause(subscription.payment_transaction_id);
+            console.log(`Paused Razorpay subscription: ${subscription.payment_transaction_id}`);
+          } else {
+            console.error('Warning: razorpay.subscriptions.pause method not available in SDK');
+          }
+        }
+        else if (req.body.status === 'active' && 
+                (subscription.status === 'paused' || subscription.status === 'halted')) {
+          // Resume subscription in Razorpay
+          // Check if resume method exists
+          if (typeof razorpay.subscriptions.resume === 'function') {
+            await razorpay.subscriptions.resume(subscription.payment_transaction_id);
+            console.log(`Resumed Razorpay subscription: ${subscription.payment_transaction_id}`);
+          } else {
+            console.error('Warning: razorpay.subscriptions.resume method not available in SDK');
+          }
+        }
+      } catch (razorpayError) {
+        console.error('Warning: Could not update Razorpay subscription:', razorpayError);
+        // Continue anyway as we've updated our database
+      }
     }
+    
+    // Update payment status if we're changing subscription status
+    if (req.body.status) {
+      try {
+        await Payment.updateMany(
+          { subscription_id: subscription.payment_transaction_id },
+          { 
+            subscription_status: req.body.status.toUpperCase(),
+            updated_at: new Date()
+          }
+        );
+      } catch (dbError) {
+        console.error('Error updating payment records:', dbError);
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      subscription: updatedSubscription
+    });
+    
+  } catch (error) {
+    console.error('Error updating subscription:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
-
+};
 
 exports.handleRazorpayWebhook = async (req, res) => {
   try {
@@ -1028,4 +1111,150 @@ async function savePaymentMethod(userId, paymentEntity, gateway) {
     console.error('Error saving payment method:', error);
   }
 }
+
+exports.updatePlan = async (req, res) => {
+  try {
+    const planId = req.params.id || req.params.planId;
+    
+    let existingPlan;
+    if (mongoose.Types.ObjectId.isValid(planId)) {
+      existingPlan = await SubscriptionPlan.findById(planId);
+    } else {
+      existingPlan = await SubscriptionPlan.findOne({ plan_id: planId });
+    }
+    
+    if (!existingPlan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    // For Razorpay, we can only update notes on existing plans
+    if (existingPlan.plan_id && req.body.notes) {
+      try {
+        // Update notes in Razorpay
+        await razorpay.plans.edit(existingPlan.plan_id, {
+          notes: req.body.notes
+        });
+        console.log(`Updated Razorpay plan notes: ${existingPlan.plan_id}`);
+      } catch (razorpayError) {
+        console.error('Warning: Could not update Razorpay plan:', razorpayError);
+        // Continue anyway as we can still update our database
+      }
+    }
+    
+    // Update fields in our database
+    const updatableFields = [
+      'name', 'workspace_type', 'description', 'price', 
+      'free_trial_days', 'discount', 'categories'
+    ];
+    
+    // Handle categories specially to maintain proper structure
+    if (req.body.categories) {
+      let formattedCategories = [];
+      
+      // If categories is an array of strings, convert to proper format
+      if (Array.isArray(req.body.categories) && typeof req.body.categories[0] === 'string') {
+        formattedCategories = req.body.categories.map(cat => ({
+          name: cat,
+          features: []
+        }));
+        req.body.categories = formattedCategories;
+      }
+    }
+    
+    // Build update object with only provided fields
+    const updateData = {};
+    updatableFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+    
+    // Add updated timestamp
+    updateData.updated_at = new Date();
+    
+    // Apply the update
+    const updatedPlan = await SubscriptionPlan.findByIdAndUpdate(
+      existingPlan._id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+    
+    res.status(200).json({
+      success: true,
+      plan: updatedPlan
+    });
+    
+  } catch (error) {
+    console.error('Error updating plan:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+exports.deletePlan = async (req, res) => {
+  try {
+    const planId = req.params.id || req.params.planId;
+    
+    // Find the plan
+    let plan;
+    if (mongoose.Types.ObjectId.isValid(planId)) {
+      plan = await SubscriptionPlan.findById(planId);
+    } else {
+      plan = await SubscriptionPlan.findOne({ plan_id: planId });
+    }
+    
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Plan not found'
+      });
+    }
+    
+    // Check if plan has active subscriptions
+    const activeSubscriptions = await UserSubscription.countDocuments({
+      current_tier: plan.name,
+      status: 'active'
+    });
+    
+    if (activeSubscriptions > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot delete plan with ${activeSubscriptions} active subscriptions`
+      });
+    }
+    
+    // Delete from Razorpay if possible (note: Razorpay might not allow this)
+    if (plan.plan_id) {
+      try {
+        // Note: As of my knowledge, Razorpay doesn't allow deleting plans
+        // This is just a placeholder in case they add this functionality
+        // await razorpay.plans.delete(plan.plan_id);
+        console.log('Note: Razorpay does not support deleting plans');
+      } catch (razorpayError) {
+        console.error('Warning: Could not delete from Razorpay:', razorpayError);
+        // Continue anyway as we can still delete from our database
+      }
+    }
+    
+    // Delete from our database
+    await SubscriptionPlan.findByIdAndDelete(plan._id);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Plan deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error deleting plan:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 
