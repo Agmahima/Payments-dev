@@ -12,6 +12,8 @@ router.get('/subscription', subscriptionController.getAllSubscriptions);
 router.get('/subscription/:subscriptionId', subscriptionController.getSubscription);
 router.post('/subscription/:subscriptionId/cancel', subscriptionController.cancelSubscription);
 router.post('/subscription/:subscriptionId/update', subscriptionController.updateSubscription);
+router.post('/webhook/:gateway', subscriptionController.handleRazorpayWebhook);
+
 
 
 

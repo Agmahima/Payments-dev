@@ -294,4 +294,90 @@ exports.updateSubscription=async(req,res)=>{
     }
   }
 
+  // exports.webhookHandler=async(req,res)=>{
+  //   try{
+  //     const {event, payload}=req.body;
+  //     console.log('Webhook event:',event);
+  //     console.log('Webhook payload:',payload);
+  //     if(event==='subscription.charged'){
+  //       const subscription=await UserSubscription.findOne({
+  //         payment_transaction_id:payload.entity.subscription_id
+  //       });
+  //       if(!subscription){
+  //         console.error('Subscription not found:',payload.entity.subscription_id);
+  //         return res.status(404).json({
+  //           success:false,
+  //           error:'Subscription not found'
+  //         });
+  //       }
+  //       subscription.used_benefits.push({
+  //         category:payload.entity.item.description,
+  //         feature:payload.entity.item.name,
+  //         limit:payload.entity.item.quantity,
+  //         usage:payload.entity.item.quantity
+  //       });
+  //       await subscription.save();
+  //       console.log('Subscription updated:',subscription);
+  //     }
+  //     res.status(200).json({
+  //       success:true,
+  //       message:'Webhook processed successfully'
+  //     });
+  //   }
+  //   catch(error){
+  //     console.error('Error processing webhook:',error);
+  //     res.status(500).json({
+  //       success:false,
+  //       error:error.message
+  //     });
+  //   }
+  // }
+  exports.handleRazorpayWebhook = async (req, res) => {
+    try {
+      // Verify webhook signature
+      const webhookSignature = req.headers['x-razorpay-signature'];
+      const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+      
+      const generatedSignature = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(JSON.stringify(req.body))
+        .digest('hex');
+      
+      if (generatedSignature !== webhookSignature) {
+        return res.status(400).json({ error: 'Invalid webhook signature' });
+      }
+      
+      // Process the webhook event
+      const event = req.body;
+      
+      switch (event.event) {
+        case 'subscription.charged':
+          // Payment successful, update subscription
+          await handleSubscriptionCharged(event.payload.subscription.entity);
+          break;
+          
+        case 'subscription.cancelled':
+          // Subscription cancelled
+          await handleSubscriptionCancelled(event.payload.subscription.entity);
+          break;
+          
+        case 'subscription.pending':
+          // Subscription payment pending
+          await handleSubscriptionPending(event.payload.subscription.entity);
+          break;
+          
+        case 'subscription.halted':
+          // Subscription halted due to payment failures
+          await handleSubscriptionHalted(event.payload.subscription.entity);
+          break;
+          
+        // Add other events as needed
+      }
+      
+      res.status(200).json({ received: true });
+    } catch (error) {
+      console.error('Webhook error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  };
 
