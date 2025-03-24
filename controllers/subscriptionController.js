@@ -48,6 +48,16 @@ const verifyWebhookSignature = (req) => {
 exports.createPlan=async(req,res)=>{
   try{
     const{ name,period,interval,item}=req.body;
+    
+    // Validate period value
+    const validPeriods = ['daily', 'weekly', 'monthly', 'yearly'];
+    if (!validPeriods.includes(period)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid period value. Must be one of: ${validPeriods.join(', ')}`
+      });
+    }
+    
     const plan=await razorpay.plans.create({
       period,
       interval,
@@ -60,13 +70,43 @@ exports.createPlan=async(req,res)=>{
       notes:req.body.notes||{}
     });
 
+    // Map period to duration properly
+    let duration;
+    if (period === 'monthly' && interval === 1) {
+      duration = 'monthly';
+    } else if (period === 'monthly' && interval === 3) {
+      duration = 'quarterly';
+    } else if (period === 'yearly') {
+      duration = 'yearly';
+    } else {
+      duration = `${period}-${interval}`;
+    }
+
+    // Handle categories based on input format
+    let formattedCategories = [];
+    
+    // Check if we received categories in the request
+    if (req.body.categories) {
+      // If categories is an array of strings, convert to proper format
+      if (Array.isArray(req.body.categories) && typeof req.body.categories[0] === 'string') {
+        formattedCategories = req.body.categories.map(cat => ({
+          name: cat,
+          features: []
+        }));
+      } 
+      // If it's already in the correct format, use as is
+      else if (Array.isArray(req.body.categories) && typeof req.body.categories[0] === 'object') {
+        formattedCategories = req.body.categories;
+      }
+    }
+
     const subscriptionPlan=new SubscriptionPlan({
       name:name,
       workspace_type:req.body.workspace_type,
       description:item.description||'',
       price:item.amount,
-      duration:period==='month'?'monthly':period==='year'?'yearly':'quarterly',
-      categories:req.body.categories||[],
+      duration:duration,
+      categories:formattedCategories,
       plan_id:plan.id
     });
 
