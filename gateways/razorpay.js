@@ -73,32 +73,27 @@ const createOrder = async (orderData) => {
 /**
  * Verify Razorpay webhook signature
  */
-const verifyWebhookSignature = (payload, signature) => {
+const verifyWebhookSignature = (req) => {
   try {
-    if (!payload || !signature) {
-      console.error("Missing payload or signature for webhook verification");
-      return false;
-    }
-
+    const webhookSignature = req.headers['x-razorpay-signature'];
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      console.error("RAZORPAY_WEBHOOK_SECRET is not configured");
-      return false;
-    }
     
-    const shasum = crypto.createHmac('sha256', webhookSecret);
-    shasum.update(JSON.stringify(payload));
-    const digest = shasum.digest('hex');
+    if (!webhookSignature || !webhookSecret) return false;
     
-    const isValid = digest === signature;
-    console.log(`Razorpay webhook signature validation: ${isValid ? 'valid' : 'invalid'}`);
-    return isValid;
+    // Use req.rawBody if available, otherwise stringify the body
+    const webhookBody = req.rawBody ? req.rawBody.toString() : JSON.stringify(req.body);
+    
+    const generatedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(webhookBody)
+      .digest('hex');
+    
+    return generatedSignature === webhookSignature;
   } catch (error) {
-    console.error("Error verifying Razorpay webhook signature:", error);
+    console.error('Error verifying webhook signature:', error);
     return false;
   }
 };
-
 /**
  * Verify payment signature (for frontend verification)
  */

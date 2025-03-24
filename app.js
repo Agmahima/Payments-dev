@@ -14,7 +14,13 @@ const app = express();
 // Raw body parser specifically for webhooks
 app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
 
-// Regular JSON parser for other routes
+app.use('/api/subscriptions/webhook', express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
+
+// Regular JSON parsing for other routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
