@@ -586,7 +586,7 @@ exports.handleRazorpayWebhook = async (req, res) => {
         // Check if this is a subscription payment
         if (payload.payment.entity.order_id) {
           // This might be a regular payment, not a subscription
-          // Handle according to your needs
+          
         } else if (payload.payment.entity.invoice_id || payload.subscription) {
           // This is likely a subscription payment
           subscriptionId = payload.subscription?.entity?.id;
@@ -620,7 +620,6 @@ exports.handleRazorpayWebhook = async (req, res) => {
   }
 };
 
-// Helper function to map Razorpay payment methods to your system's format
 const mapPaymentMethod = (paymentEntity) => {
   if (!paymentEntity || !paymentEntity.method) return 'OTHER';
   
