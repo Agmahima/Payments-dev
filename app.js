@@ -3,6 +3,7 @@ dotenv.config();
 const express = require('express');
 const mongoose = require('mongoose');
 const CASHFREE_API_URL = process.env.CASHFREE_BASE_URL;
+const bodyParser = require('body-parser');
 
 console.log("Cashfree Base URL:", CASHFREE_API_URL);
 
@@ -38,6 +39,34 @@ app.use('/api/payments/webhook', (req, res, next) => {
   }
   next();
 });
+
+app.use('/api/subscriptions/webhook', 
+  express.raw({ type: 'application/json' }), 
+  (req, res, next) => {
+    try {
+      // Store raw body for signature verification
+      const rawBody = req.body;
+      
+      // Parse body only if it's a buffer
+      if (Buffer.isBuffer(rawBody)) {
+        req.rawBody = rawBody;
+        req.body = JSON.parse(rawBody.toString('utf8'));
+        console.log('Webhook payload:', req.body);
+      } else {
+        console.log('Raw body type:', typeof rawBody);
+        req.rawBody = rawBody;
+        req.body = rawBody;
+      }
+      next();
+    } catch (error) {
+      console.error('Error parsing webhook body:', error);
+      console.error('Raw body:', req.body);
+      return res.status(400).json({ error: 'Invalid JSON payload' });
+    }
+});
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
 app.use((req, res, next) => {
