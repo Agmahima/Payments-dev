@@ -3,7 +3,7 @@ const crypto=require('crypto');
 const mongoose=require('mongoose');
 // const UserSubscription=require('../models/UserSubscription');
 // const Subscription=require('../models/SubscriptionPlan');
-const UserSubscription=require('../models/UserSubscription');
+const UserSubscription=require('../models/userSubscriptionSchema');
 const SubscriptionPlan=require('../models/subscriptionPlanSchema');
 const Payment=require('../models/Payment.js');
 const Transaction=require('../models/Transaction');
@@ -389,7 +389,15 @@ exports.createSubscription = async (req, res) => {
       used_benefits: [],
       status: 'created'
     });
+    console.log("Saving userSubscription:", userSubscription);
+    console.log("Person ID:", personObjectId, "Workspace ID:", workspaceObjectId);
+console.log("Valid ObjectId for Person:", mongoose.Types.ObjectId.isValid(person_id));
+console.log("Valid ObjectId for Workspace:", mongoose.Types.ObjectId.isValid(workspace_id));
+
+
     await userSubscription.save();
+    console.log("UserSubscription saved successfully");
+
 
     // Create payment record for this subscription
     const payment = new Payment({
@@ -751,70 +759,219 @@ exports.cancelSubscription = async (req, res) => {
 //     });
 //   }
 // };
+// exports.updateSubscription = async (req, res) => {
+//   try {
+//       const subscriptionId = req.params.subscriptionId;
+//       const subscription = await UserSubscription.findById(subscriptionId);
+
+//       if (!subscription) {
+//           return res.status(404).json({
+//               success: false,
+//               error: "Subscription not found"
+//           });
+//       }
+
+//       // Get the previous and new plan
+//       const previousPlan = subscription.current_tier;
+//       const newPlan = req.body.current_tier || previousPlan; // If not provided, keep the same
+
+//       console.log(`Updating subscription ${subscriptionId}`);
+//       console.log(`Previous Plan: ${previousPlan}`);
+//       console.log(`New Plan: ${newPlan}`);
+
+//       // Check if the plan is being changed
+//       if (previousPlan !== newPlan) {
+//           console.log(`Plan is changing from ${previousPlan} to ${newPlan}`);
+//       } else {
+//           console.log(`Plan remains the same: ${previousPlan}`);
+//       }
+
+//       // Fields that can be updated
+//       const updatableFields = ["current_tier", "valid_until", "status", "used_benefits"];
+//       const updateData = {};
+
+//       updatableFields.forEach(field => {
+//           if (req.body[field] !== undefined) {
+//               updateData[field] = req.body[field];
+//           }
+//       });
+
+//       // Always update timestamp
+//       updateData.updated_at = new Date();
+
+//       // Apply updates
+//       const updatedSubscription = await UserSubscription.findByIdAndUpdate(
+//           subscriptionId,
+//           { $set: updateData },
+//           { new: true, runValidators: true }
+//       );
+
+//       res.status(200).json({
+//           success: true,
+//           message: `Subscription updated successfully`,
+//           previousPlan,
+//           newPlan,
+//           subscription: updatedSubscription
+//       });
+
+//   } catch (error) {
+//       console.error("Error updating subscription:", error);
+//       res.status(500).json({
+//           success: false,
+//           error: error.message
+//       });
+//   }
+// };
 exports.updateSubscription = async (req, res) => {
   try {
-      const subscriptionId = req.params.subscriptionId;
-      const subscription = await UserSubscription.findById(subscriptionId);
-
-      if (!subscription) {
-          return res.status(404).json({
-              success: false,
-              error: "Subscription not found"
-          });
-      }
-
-      // Get the previous and new plan
-      const previousPlan = subscription.current_tier;
-      const newPlan = req.body.current_tier || previousPlan; // If not provided, keep the same
-
-      console.log(`Updating subscription ${subscriptionId}`);
-      console.log(`Previous Plan: ${previousPlan}`);
-      console.log(`New Plan: ${newPlan}`);
-
-      // Check if the plan is being changed
-      if (previousPlan !== newPlan) {
-          console.log(`Plan is changing from ${previousPlan} to ${newPlan}`);
-      } else {
-          console.log(`Plan remains the same: ${previousPlan}`);
-      }
-
-      // Fields that can be updated
-      const updatableFields = ["current_tier", "valid_until", "status", "used_benefits"];
-      const updateData = {};
-
-      updatableFields.forEach(field => {
-          if (req.body[field] !== undefined) {
-              updateData[field] = req.body[field];
-          }
+    const subscriptionId = req.params.id || req.params.subscriptionId;
+    const subscription = await UserSubscription.findById(subscriptionId);
+    
+    if (!subscription) {
+      return res.status(404).json({
+        success: false,
+        error: 'Subscription not found'
       });
-
-      // Always update timestamp
-      updateData.updated_at = new Date();
-
-      // Apply updates
-      const updatedSubscription = await UserSubscription.findByIdAndUpdate(
-          subscriptionId,
-          { $set: updateData },
-          { new: true, runValidators: true }
-      );
-
-      res.status(200).json({
-          success: true,
-          message: `Subscription updated successfully`,
-          previousPlan,
-          newPlan,
-          subscription: updatedSubscription
+    }
+    
+    // Store previous tier/plan for comparison
+    const previousTier = subscription.current_tier;
+    
+    // Get Razorpay plan IDs for both tiers
+    const oldPlan = await SubscriptionPlan.findOne({ name: previousTier });
+    const newPlan = req.body.current_tier ? 
+      await SubscriptionPlan.findOne({ name: req.body.current_tier }) : 
+      oldPlan;
+    
+    if (newPlan && previousTier === newPlan.name) {
+      return res.status(400).json({
+        success: false,
+        error: 'Already subscribed to this plan'
       });
-
-  } catch (error) {
-      console.error("Error updating subscription:", error);
-      res.status(500).json({
+    }
+    
+    // Build update object for database
+    const updateData = {};
+    
+    // Fields that can be updated
+    const updatableFields = [
+      'current_tier', 'valid_until', 'status', 'used_benefits'
+    ];
+    
+    updatableFields.forEach(field => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
+    
+    updateData.updated_at = new Date();
+    
+    let razorpayResponse = null;
+    // Check if user wants immediate upgrade or cycle-end change
+    const scheduleChangeAt = req.body.immediate ? "now" : "cycle_end";
+    
+    // Update plan in Razorpay if tier is being changed
+    if (req.body.current_tier && req.body.current_tier !== previousTier && 
+        subscription.payment_transaction_id && newPlan && newPlan.plan_id) {
+      
+      // Determine if this is an upgrade or downgrade
+      const isUpgrade = newPlan.price > (oldPlan?.price || 0);
+      const isDowngrade = newPlan.price < (oldPlan?.price || 0);
+      
+      try {
+        // For downgrades, always use cycle_end regardless of immediate flag
+        // This matches your previous logic of setting scheduled_downgrade
+        const effectiveSchedule = isDowngrade ? "cycle_end" : scheduleChangeAt;
+        
+        // PATCH the subscription with the new plan_id
+        razorpayResponse = await razorpay.subscriptions.update(subscription.payment_transaction_id, {
+          plan_id: newPlan.plan_id,
+          schedule_change_at: effectiveSchedule,
+          customer_notify: 1
+        });
+        
+        console.log('Razorpay update response:', razorpayResponse);
+        
+        // If this is a downgrade, reflect that in our database
+        if (isDowngrade) {
+          updateData.scheduled_downgrade = req.body.current_tier;
+          // Don't change current_tier yet for downgrades
+          delete updateData.current_tier; 
+        }
+        
+      } catch (razorpayError) {
+        console.error('Error updating plan with Razorpay:', razorpayError);
+        return res.status(400).json({
           success: false,
-          error: error.message
-      });
+          error: razorpayError.error ? razorpayError.error.description : razorpayError.message
+        });
+      }
+    }
+    
+    // Apply updates to database
+    const updatedSubscription = await UserSubscription.findByIdAndUpdate(
+      subscriptionId,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+    
+    // Build response
+    const isUpgrade = newPlan && oldPlan && newPlan.price > oldPlan.price;
+    const isDowngrade = newPlan && oldPlan && newPlan.price < oldPlan.price;
+    
+    const response = {
+      success: true,
+      message: isDowngrade 
+        ? "Subscription downgrade scheduled for next billing cycle"
+        : (scheduleChangeAt === "now" 
+          ? "Subscription upgrade initiated. Additional payment may be required."
+          : "Subscription update scheduled for next billing cycle."),
+      previousPlan: previousTier,
+      newPlan: isDowngrade ? previousTier : updatedSubscription.current_tier, // For downgrades, show current plan still
+      scheduled_downgrade: updatedSubscription.scheduled_downgrade, // Add this for downgrades
+      subscription: updatedSubscription,
+      effective_at: isDowngrade || scheduleChangeAt === "cycle_end" ? "next billing cycle" : "immediately"
+    };
+    
+    // Add payment link if provided by Razorpay (for immediate upgrades)
+    if (razorpayResponse && razorpayResponse.short_url) {
+      response.payment_link = razorpayResponse.short_url;
+      response.razorpay_key = process.env.RAZORPAY_KEY_ID;
+      response.requires_payment = true;
+      response.message = "Plan upgrade requires additional payment. Please use the payment link.";
+      
+      // Calculate prorated amount if upgrade
+      if (isUpgrade && oldPlan && newPlan) {
+        const now = new Date();
+        const validUntil = new Date(subscription.valid_until);
+        const remainingDays = Math.ceil((validUntil - now) / (1000 * 60 * 60 * 24));
+        const daysInPlan = oldPlan.duration === "monthly" ? 30 : 
+                          oldPlan.duration === "yearly" ? 365 : 90;
+        
+        const proRatedPrice = Math.max(0, 
+          newPlan.price - ((oldPlan.price / daysInPlan) * remainingDays)
+        ).toFixed(2);
+        
+        response.proration = {
+          remaining_days: remainingDays,
+          days_in_plan: daysInPlan,
+          old_plan_price: oldPlan.price,
+          new_plan_price: newPlan.price,
+          prorated_amount: proRatedPrice
+        };
+      }
+    }
+    
+    res.status(200).json(response);
+    
+  } catch (error) {
+    console.error('Error updating subscription:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
-
 exports.handleRazorpayWebhook = async (req, res) => {
   try {
     // Get webhook signature from headers
