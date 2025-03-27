@@ -288,7 +288,9 @@ exports.createSubscription = async (req, res) => {
     } = req.body;
 
     // Fetch the plan details from MongoDB using its _id
-    let plan = await SubscriptionPlan.findById(plan_id);
+    // let plan = await SubscriptionPlan.findById(plan_id);
+    let plan = await SubscriptionPlan.findOne({ plan_id: plan_id });
+    console.log("Plan:", plan);
     if (!plan) {
       return res.status(404).json({
         success: false,
@@ -385,7 +387,7 @@ exports.createSubscription = async (req, res) => {
       workspace_id: workspaceObjectId,
       current_tier: plan.name,
       valid_until: validUntil,
-      payment_transaction_id: subscription.id,
+      subscription_id: subscription.id,
       used_benefits: [],
       status: 'created'
     });
@@ -824,8 +826,11 @@ exports.cancelSubscription = async (req, res) => {
 // };
 exports.updateSubscription = async (req, res) => {
   try {
+    console.log(req.body);
+    console.log(req.params);
     const subscriptionId = req.params.id || req.params.subscriptionId;
-    const subscription = await UserSubscription.findById(subscriptionId);
+    const subscription = await UserSubscription.findOne({ subscription_id: subscriptionId });
+    console.log(subscription);
     
     if (!subscription) {
       return res.status(404).json({
@@ -839,9 +844,11 @@ exports.updateSubscription = async (req, res) => {
     
     // Get Razorpay plan IDs for both tiers
     const oldPlan = await SubscriptionPlan.findOne({ name: previousTier });
+    console.log("old plan :",oldPlan);
     const newPlan = req.body.current_tier ? 
       await SubscriptionPlan.findOne({ name: req.body.current_tier }) : 
       oldPlan;
+      console.log("new plan :",newPlan);
     
     if (newPlan && previousTier === newPlan.name) {
       return res.status(400).json({
@@ -857,6 +864,7 @@ exports.updateSubscription = async (req, res) => {
     const updatableFields = [
       'current_tier', 'valid_until', 'status', 'used_benefits'
     ];
+    console.log("updatableFields:",updatableFields);
     
     updatableFields.forEach(field => {
       if (req.body[field] !== undefined) {
@@ -869,14 +877,17 @@ exports.updateSubscription = async (req, res) => {
     let razorpayResponse = null;
     // Check if user wants immediate upgrade or cycle-end change
     const scheduleChangeAt = req.body.immediate ? "now" : "cycle_end";
+    console.log("scheduleChangeAt:",scheduleChangeAt);
     
     // Update plan in Razorpay if tier is being changed
     if (req.body.current_tier && req.body.current_tier !== previousTier && 
-        subscription.payment_transaction_id && newPlan && newPlan.plan_id) {
+          newPlan && newPlan.plan_id) {
       
       // Determine if this is an upgrade or downgrade
       const isUpgrade = newPlan.price > (oldPlan?.price || 0);
-      const isDowngrade = newPlan.price < (oldPlan?.price || 0);
+      const isDowngrade = newPlan.price < (oldPlan?.price);
+      console.log(isDowngrade);
+      console.log("Start 1");
       
       try {
         // For downgrades, always use cycle_end regardless of immediate flag
@@ -884,11 +895,12 @@ exports.updateSubscription = async (req, res) => {
         const effectiveSchedule = isDowngrade ? "cycle_end" : scheduleChangeAt;
         
         // PATCH the subscription with the new plan_id
-        razorpayResponse = await razorpay.subscriptions.update(subscription.payment_transaction_id, {
+        razorpayResponse = await razorpay.subscriptions.update(subscription.subscription_id, {
           plan_id: newPlan.plan_id,
           schedule_change_at: effectiveSchedule,
           customer_notify: 1
         });
+        console.log("Start 2");
         
         console.log('Razorpay update response:', razorpayResponse);
         
@@ -909,8 +921,13 @@ exports.updateSubscription = async (req, res) => {
     }
     
     // Apply updates to database
-    const updatedSubscription = await UserSubscription.findByIdAndUpdate(
-      subscriptionId,
+    // const updatedSubscription = await UserSubscription.findByIdAndUpdate(
+    //   subscriptionId,
+    //   { $set: updateData },
+    //   { new: true, runValidators: true }
+    // );
+    const updatedSubscription = await UserSubscription.findOneAndUpdate(
+      { subscription_id: subscriptionId },
       { $set: updateData },
       { new: true, runValidators: true }
     );
@@ -918,6 +935,7 @@ exports.updateSubscription = async (req, res) => {
     // Build response
     const isUpgrade = newPlan && oldPlan && newPlan.price > oldPlan.price;
     const isDowngrade = newPlan && oldPlan && newPlan.price < oldPlan.price;
+    console.log("Updated data :",updateData);
     
     const response = {
       success: true,
@@ -951,6 +969,7 @@ exports.updateSubscription = async (req, res) => {
         const proRatedPrice = Math.max(0, 
           newPlan.price - ((oldPlan.price / daysInPlan) * remainingDays)
         ).toFixed(2);
+        console.log("proRatedPrice:",proRatedPrice);
         
         response.proration = {
           remaining_days: remainingDays,

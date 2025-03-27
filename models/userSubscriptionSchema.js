@@ -14,6 +14,7 @@ const userSubscriptionSchema = new mongoose.Schema(
     workspace_id: { type: mongoose.Schema.Types.ObjectId, ref: "Workspace", default: null },
     current_tier: { type: String, default: "free" },
     valid_until: { type: Date, required: true },
+    subscription_id:{type:String,required:true},
     payment_transaction_id: { type: String, default: "" },
     used_benefits: { type: [usedBenefitSchema], default: [] },
   },
