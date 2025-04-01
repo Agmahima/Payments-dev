@@ -13,40 +13,66 @@ const razorpay=new Razorpay({
   key_id:process.env.RAZORPAY_KEY_ID,
   key_secret:process.env.RAZORPAY_KEY_SECRET
 });
+RAZORPAY_WEBHOOK_SECRET=process.env.RAZORPAY_WEBHOOK_SECRET;
+
 
 /**
  * Verify Razorpay webhook signature
  */
-const verifyWebhookSignature = (req) => {
+// const verifyWebhookSignature = (req) => {
+//   try {
+//     const webhookSignature = req.headers['x-razorpay-signature'];
+//     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    
+//     if (!webhookSignature || !webhookSecret){
+//         console.error("webhook signature or secret missing ")
+//       return false;
+//     } 
+    
+//     // Use req.rawBody if available, otherwise stringify the body
+//     const webhookBody = req.rawBody ? req.rawBody.toString() : JSON.stringify(req.body);
+    
+//     const generatedSignature = crypto
+//       .createHmac('sha256', webhookSecret)
+//       .update(webhookBody)
+//       .digest('hex');
+    
+//     console.log('Signature verification:', {
+//       received: webhookSignature.substring(0, 10) + '...',
+//       computed: generatedSignature.substring(0, 10) + '...',
+//       matches: generatedSignature === webhookSignature
+//     });
+    
+//     return generatedSignature === webhookSignature;
+//   } catch (error) {
+//     console.error('Error verifying webhook signature:', error);
+//     return false;
+//   }
+// };
+
+// Manually verify the Razorpay webhook signature
+const verifyWebhookSignature = (rawBody, receivedSignature, webhookSecret) => {
   try {
-    const webhookSignature = req.headers['x-razorpay-signature'];
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    
-    if (!webhookSignature || !webhookSecret){
-        console.error("webhook signature or secret missing ")
-      return false;
-    } 
-    
-    // Use req.rawBody if available, otherwise stringify the body
-    const webhookBody = req.rawBody ? req.rawBody.toString() : JSON.stringify(req.body);
-    
-    const generatedSignature = crypto
-      .createHmac('sha256', webhookSecret)
-      .update(webhookBody)
-      .digest('hex');
-    
-    console.log('Signature verification:', {
-      received: webhookSignature.substring(0, 10) + '...',
-      computed: generatedSignature.substring(0, 10) + '...',
-      matches: generatedSignature === webhookSignature
-    });
-    
-    return generatedSignature === webhookSignature;
+    // Ensure rawBody is a Buffer
+    if (typeof rawBody === 'string') {
+      rawBody = Buffer.from(rawBody, 'utf-8');
+    }
+
+    // Generate HMAC-SHA256 hash using the webhook secret and raw body
+    const hmac = crypto.createHmac('sha256', webhookSecret);
+    hmac.update(rawBody); // Update HMAC with raw body
+    const expectedSignature = hmac.digest('hex'); // Generate expected signature
+    console.log('Expected signature:', expectedSignature);
+    console.log('Received signature:', receivedSignature);
+
+    // Compare the received signature with the expected signature
+    return receivedSignature === expectedSignature;
   } catch (error) {
     console.error('Error verifying webhook signature:', error);
     return false;
   }
 };
+
 
 exports.createPlan=async(req,res)=>{
   try{
@@ -991,136 +1017,276 @@ exports.updateSubscription = async (req, res) => {
     });
   }
 };
-exports.handleRazorpayWebhook = async (req, res) => {
-  try {
-    // Get webhook signature from headers
-    const webhookSignature = req.headers['x-razorpay-signature'];
-    console.log(req.rawBody);
+// exports.handleRazorpayWebhook = async (req, res) => {
+//   try {
+//     // Get webhook signature from headers
+//     const webhookSignature = req.headers['x-razorpay-signature'];
+//     console.log(req.rawBody);
     
-    if (!webhookSignature) {
-      console.error('Webhook signature missing');
-      // Still return 200 to prevent retries, but log the issue
-      return res.status(200).json({ received: true, error: 'Signature missing' });
-    }
+//     if (!webhookSignature) {
+//       console.error('Webhook signature missing');
+//       // Still return 200 to prevent retries, but log the issue
+//       return res.status(200).json({ received: true, error: 'Signature missing' });
+//     }
     
-    // Log incoming webhook details (helpful for debugging)
-    console.log('Received Razorpay webhook:', { 
-      event: req.body.event,
-      signature: webhookSignature ? 'Present' : 'Missing',
-      body_size: JSON.stringify(req.body).length
-    });
+//     // Log incoming webhook details (helpful for debugging)
+//     console.log('Received Razorpay webhook:', { 
+//       event: req.body.event,
+//       signature: webhookSignature ? 'Present' : 'Missing',
+//       body_size: JSON.stringify(req.body).length
+//     });
     
-    // Use the verification function
-    const isValid = verifyWebhookSignature(req);
+//     // Use the verification function
+//     const isValid = verifyWebhookSignature(req);
 
-    if (!verifyWebhookSignature(req)) {
-      return res.status(400).json({ success: false, message: "Invalid signature" });
-    }
+//     if (!verifyWebhookSignature(req)) {
+//       return res.status(400).json({ success: false, message: "Invalid signature" });
+//     }
     
-    // Skip signature check in development if needed
-    const skipVerification = process.env.SKIP_WEBHOOK_VERIFICATION === 'true';
-    if (!skipVerification && !isValid) {
-      console.error('Invalid webhook signature');
-      // Still return 200 but log the error
-      return res.status(200).json({ received: true, error: 'Invalid signature' });
-    }
+//     // Skip signature check in development if needed
+//     const skipVerification = process.env.SKIP_WEBHOOK_VERIFICATION === 'true';
+//     if (!skipVerification && !isValid) {
+//       console.error('Invalid webhook signature');
+//       // Still return 200 but log the error
+//       return res.status(200).json({ received: true, error: 'Invalid signature' });
+//     }
     
-    // Process webhook based on event type
-    const event = req.body.event;
-    console.log(`Processing webhook event: ${event}`);
+//     // Process webhook based on event type
+//     const event = req.body.event;
+//     console.log(`Processing webhook event: ${event}`);
     
-    // Extract data from webhook payload
-    const payload = req.body.payload;
-    console.log('Webhook payload:', payload);
-    let subscriptionId, paymentId, status;
+//     // Extract data from webhook payload
+//     const payload = req.body.payload;
+//     console.log('Webhook payload:', payload);
+//     let subscriptionId, paymentId, status;
     
-    if (event.startsWith('subscription.')) {
-      // Handle subscription events
-      if (payload && payload.subscription && payload.subscription.entity) {
-        subscriptionId = payload.subscription.entity.id;
-        status = payload.subscription.entity.status;
+//     if (event.startsWith('subscription.')) {
+//       // Handle subscription events
+//       if (payload && payload.subscription && payload.subscription.entity) {
+//         subscriptionId = payload.subscription.entity.id;
+//         status = payload.subscription.entity.status;
         
-        console.log(`Subscription ${subscriptionId} status: ${status}`);
+//         console.log(`Subscription ${subscriptionId} status: ${status}`);
         
-        // Handle different subscription events
-        switch (event) {
-          case 'plan.created':
-            // Handle new plan creation
-            await handleSubscriptionCreated(payload.subscription.entity);
-            break;
-          case 'subscription.created':
-            await updateSubscriptionStatus(subscriptionId, 'CREATED');
-            break;
-          case 'subscription.authenticated':
-            await updateSubscriptionStatus(subscriptionId, 'AUTHENTICATED');
-            break;
-          case 'subscription.activated':
-            await updateSubscriptionStatus(subscriptionId, 'ACTIVE');
-            break;
-          case 'subscription.charged':
-            // Handle subscription payment success
-            if (payload.payment && payload.payment.entity) {
-              paymentId = payload.payment.entity.id;
-              await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
-                payment_id: paymentId,
-                payment_method: mapPaymentMethod(payload.payment.entity),
-                amount: payload.payment.entity.amount / 100,
-                gateway_response: payload
-              });
-            }
-            break;
-          case 'subscription.halted':
-            await updateSubscriptionStatus(subscriptionId, 'HALTED');
-            break;
-          case 'subscription.cancelled':
-            await updateSubscriptionStatus(subscriptionId, 'CANCELLED');
-            break;
-          default:
-            console.log(`Unhandled subscription event: ${event}`);
-        }
-      }
-    } else if (event.startsWith('payment.')) {
-      // Handle payment events
-      if (payload && payload.payment && payload.payment.entity) {
-        paymentId = payload.payment.entity.id;
-        status = payload.payment.entity.status;
+//         // Handle different subscription events
+//         switch (event) {
+//           case 'plan.created':
+//             // Handle new plan creation
+//             await handleSubscriptionCreated(payload.subscription.entity);
+//             break;
+//           case 'subscription.created':
+//             await updateSubscriptionStatus(subscriptionId, 'CREATED');
+//             break;
+//           case 'subscription.authenticated':
+//             await updateSubscriptionStatus(subscriptionId, 'AUTHENTICATED');
+//             break;
+//           case 'subscription.activated':
+//             await updateSubscriptionStatus(subscriptionId, 'ACTIVE');
+//             break;
+//           case 'subscription.charged':
+//             // Handle subscription payment success
+//             if (payload.payment && payload.payment.entity) {
+//               paymentId = payload.payment.entity.id;
+//               await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
+//                 payment_id: paymentId,
+//                 payment_method: mapPaymentMethod(payload.payment.entity),
+//                 amount: payload.payment.entity.amount / 100,
+//                 gateway_response: payload
+//               });
+//             }
+//             break;
+//             case 'subscription.upgraded':
+//             // Handle subscription upgrade
+//             await handleSubscriptionCreated(subscriptionId, payload.subscription.entity);
+//             break;
+//           case 'subscription.halted':
+//             await updateSubscriptionStatus(subscriptionId, 'HALTED');
+//             break;
+//           case 'subscription.cancelled':
+//             await updateSubscriptionStatus(subscriptionId, 'CANCELLED');
+//             break;
+//           default:
+//             console.log(`Unhandled subscription event: ${event}`);
+//         }
+//       }
+//     } else if (event.startsWith('payment.')) {
+//       // Handle payment events
+//       if (payload && payload.payment && payload.payment.entity) {
+//         paymentId = payload.payment.entity.id;
+//         status = payload.payment.entity.status;
         
-        console.log(`Payment ${paymentId} status: ${status}`);
+//         console.log(`Payment ${paymentId} status: ${status}`);
         
-        // Check if this is a subscription payment
-        if (payload.payment.entity.order_id) {
-          // This might be a regular payment, not a subscription
+//         // Check if this is a subscription payment
+//         if (payload.payment.entity.order_id) {
+//           // This might be a regular payment, not a subscription
           
-        } else if (payload.payment.entity.invoice_id || payload.subscription) {
-          // This is likely a subscription payment
-          subscriptionId = payload.subscription?.entity?.id;
+//         } else if (payload.payment.entity.invoice_id || payload.subscription) {
+//           // This is likely a subscription payment
+//           subscriptionId = payload.subscription?.entity?.id;
           
-          if (subscriptionId) {
-            if (event === 'payment.captured' || status === 'captured') {
-              await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
-                payment_id: paymentId,
-                payment_method: mapPaymentMethod(payload.payment.entity),
-                amount: payload.payment.entity.amount / 100,
-                gateway_response: payload
-              });
-            } else if (event === 'payment.failed' || status === 'failed') {
-              await handleSubscriptionPayment(subscriptionId, 'FAILED', {
-                payment_id: paymentId,
-                payment_method: mapPaymentMethod(payload.payment.entity),
-                amount: payload.payment.entity.amount / 100,
-                gateway_response: payload
-              });
-            }
-          }
-        }
-      }
-    }
+//           if (subscriptionId) {
+//             if (event === 'payment.captured' || status === 'captured') {
+//               await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
+//                 payment_id: paymentId,
+//                 payment_method: mapPaymentMethod(payload.payment.entity),
+//                 amount: payload.payment.entity.amount / 100,
+//                 gateway_response: payload
+//               });
+//             } else if (event === 'payment.failed' || status === 'failed') {
+//               await handleSubscriptionPayment(subscriptionId, 'FAILED', {
+//                 payment_id: paymentId,
+//                 payment_method: mapPaymentMethod(payload.payment.entity),
+//                 amount: payload.payment.entity.amount / 100,
+//                 gateway_response: payload
+//               });
+//             }
+//           }
+//         }
+//       }
+//     }
     
-    return res.status(200).json({ received: true });
+//     return res.status(200).json({ received: true });
+//   } catch (error) {
+//     console.error('Error processing webhook:', error);
+//     // Always return 200 to acknowledge receipt
+//     return res.status(200).json({ received: true, error: error.message });
+//   }
+// };
+exports.handleRazorpayWebhook = async (req, res) => {
+  // try {
+  //   // Log incoming webhook details
+  //   console.log('Received Razorpay webhook:', {
+  //     event: req.body.event,
+  //     body_size: JSON.stringify(req.body).length
+  //   });
+
+  //   // Verify the webhook signature
+  //   if (!verifyWebhookSignature(req)) {
+  //     console.error('Invalid webhook signature');
+  //     return res.status(400).json({ success: false, message: "Invalid signature" });
+  //   }
+
+  //   // Process webhook based on event type
+  //   const event = req.body.event;
+  //   const payload = req.body.payload;
+  //   let subscriptionId, paymentId, status;
+
+  //   if (event.startsWith('subscription.') && payload.subscription && payload.subscription.entity) {
+  //     subscriptionId = payload.subscription.entity.id;
+  //     status = payload.subscription.entity.status;
+  //     console.log(`Subscription ${subscriptionId} status: ${status}`);
+
+  //     switch (event) {
+  //       case 'subscription.created':
+  //         await updateSubscriptionStatus(subscriptionId, 'CREATED');
+  //         console.log(`Subscription ${subscriptionId} created`);
+  //         break;
+  //       case 'subscription.activated':
+  //         await updateSubscriptionStatus(subscriptionId, 'ACTIVE');
+  //         break;
+  //       case 'subscription.charged':
+  //         if (payload.payment && payload.payment.entity) {
+  //           paymentId = payload.payment.entity.id;
+  //           await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
+  //             payment_id: paymentId,
+  //             payment_method: mapPaymentMethod(payload.payment.entity),
+  //             amount: payload.payment.entity.amount / 100,
+  //             gateway_response: payload
+  //           });
+  //         }
+  //         break;
+  //       case 'subscription.halted':
+  //         await updateSubscriptionStatus(subscriptionId, 'HALTED');
+  //         break;
+  //       case 'subscription.cancelled':
+  //         await updateSubscriptionStatus(subscriptionId, 'CANCELLED');
+  //         break;
+  //       default:
+  //         console.log(`Unhandled subscription event: ${event}`);
+  //     }
+  //   } else if (event.startsWith('payment.') && payload.payment && payload.payment.entity) {
+  //     paymentId = payload.payment.entity.id;
+  //     status = payload.payment.entity.status;
+  //     console.log(`Payment ${paymentId} status: ${status}`);
+
+  //     if (payload.payment.entity.invoice_id || payload.subscription) {
+  //       subscriptionId = payload.subscription?.entity?.id;
+  //       if (subscriptionId) {
+  //         if (event === 'payment.captured' || status === 'captured') {
+  //           await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
+  //             payment_id: paymentId,
+  //             payment_method: mapPaymentMethod(payload.payment.entity),
+  //             amount: payload.payment.entity.amount / 100,
+  //             gateway_response: payload
+  //           });
+  //         } else if (event === 'payment.failed' || status === 'failed') {
+  //           await handleSubscriptionPayment(subscriptionId, 'FAILED', {
+  //             payment_id: paymentId,
+  //             payment_method: mapPaymentMethod(payload.payment.entity),
+  //             amount: payload.payment.entity.amount / 100,
+  //             gateway_response: payload
+  //           });
+  //         }
+  //       }
+  //     }
+  //   } else {
+  //     console.log(`Unhandled event type: ${event}`);
+  //   }
+
+  //   return res.status(200).json({ received: true });
+  // } catch (error) {
+  //   console.error('Error processing webhook:', error);
+  //   return res.status(500).json({ received: true, error: error.message });
+  // }
+  try {
+    // Get the signature sent by Razorpay in the headers
+    const signature = req.headers['x-razorpay-signature'];
+    const rawBody = req.rawBody;
+
+    if (!signature) {
+      console.error("Webhook signature missing");
+      return res.status(400).json({ error: "Signature missing" });
+    }
+
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET; // Your Razorpay webhook secret
+
+    if (!webhookSecret) {
+      console.error("Webhook secret missing");
+      return res.status(400).json({ error: "Webhook secret missing" });
+    }
+
+    // Verify webhook signature
+    const isValid = verifyWebhookSignature(rawBody, signature, webhookSecret);
+
+    if (!isValid) {
+      console.error("Invalid webhook signature");
+      return res.status(400).json({ error: "Invalid signature" });
+    }
+
+    // Process the webhook event
+    const { event, payload } = req.body;
+    console.log(`Received Razorpay webhook:`, { event, payload });
+
+    // Handle the event (e.g., subscription activated)
+    switch (event) {
+      case 'subscription.activated':
+        console.log("Subscription activated:", payload);
+        break;
+      case 'subscription.ended':
+        console.log("Subscription ended:", payload);
+        break;
+      // Add other cases as needed
+      default:
+        console.log("Unhandled event:", event);
+    }
+
+    // Respond to Razorpay to acknowledge receipt
+    res.status(200).json({ received: true });
+
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    // Always return 200 to acknowledge receipt
-    return res.status(200).json({ received: true, error: error.message });
+    console.error("Error processing webhook:", error);
+    res.status(400).json({ error: "Webhook processing failed" });
   }
 };
 
