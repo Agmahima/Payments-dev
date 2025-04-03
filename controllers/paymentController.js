@@ -8,8 +8,55 @@ const PaymentMethod=  require('../models/paymentMethodSchema');
 const cashfreeGateway = require('../gateways/cashfree');
 const paymentConfig = require('../config/payment');
 const razorpayGateway = require('../gateways/razorpay');
-const paymentEventHandler = require('../services/paymentEventHandler');
 const geoip = require('../utils/geoip'); // You'll need to implement this
+const paymentService = require('../services/PaymentService.js');
+
+
+
+
+//investment payment through razorpay
+// async function createInvestmentPayment(req, res) {
+//   try {
+//     const {gateway}=req.body;
+//     console.log("Request body:", req.body);
+//     if(!gateway){
+//       return res.status(400).json({success:false,error:'Gateway not specified'});
+//     }
+//     const paymentData = req.body;
+//     // const response = await processPayment(paymentData);
+//     const response = await paymentService.processPayment(paymentData);
+//     return res.json(response);
+   
+//   } catch (error) {
+//     console.error('Error creating investment payment:', error);
+//     return res.status(500).json({
+//       success: false,
+//       message: 'Internal server error',
+//       error: error.message
+//     });
+//   }
+// }
+
+async function createInvestmentPayment(req, res) {
+  try {
+    const { gateway } = req.body;
+    if (!gateway) {
+      return res.status(400).json({ success: false, error: 'Gateway not specified' });
+    }
+
+    const result = await paymentService.processPayment(req.body);
+    
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    return res.status(201).json(result);
+  } catch (error) {
+    console.error('Error creating Payment', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+}
+
 
 // Utility: Generate a unique order id
 const generateOrderId = () => {
@@ -105,194 +152,194 @@ async function getPGRequestUrl(req, res) {
  * createPayment
  * Handles both one-time (Investment) and subscription payments.
  */
-async function createPayment(req, res) {
-  try {
-    console.log("Request body:", req.body);
-    const {
-      payment_purpose,      // "Investment" or "Subscription"
-      payment_amount,
-      payment_currency = 'INR',
-      payee_ref,
-      payee_type,
-      receiver_ref,
-      receiver_type,
-      customer_name,
-      customer_email,
-      customer_phone,
-      description,
-      return_url,           // e.g., https://investment.nucleohq.com/payment-status?order_id={order_id}
-      notify_url,           // e.g., https://api.nucleohq.com/api/v1/payment/webhook,        // "Debit Card", "upi", "net_banking", etc.
-      payment_details,      // Object with method-specific details
-      isSubscription,       // boolean flag
-      subscriptionType      // e.g., "monthly", "yearly", "auto-debit", "one-time"
-    } = req.body;
-    const userId = req.user ? req.user._id : "65f123456789abcdef123456";
+// async function createPayment(req, res) {
+//   try {
+//     console.log("Request body:", req.body);
+//     const {
+//       payment_purpose,      // "Investment" or "Subscription"
+//       payment_amount,
+//       payment_currency = 'INR',
+//       payee_ref,
+//       payee_type,
+//       receiver_ref,
+//       receiver_type,
+//       customer_name,
+//       customer_email,
+//       customer_phone,
+//       description,
+//       return_url,           // e.g., https://investment.nucleohq.com/payment-status?order_id={order_id}
+//       notify_url,           // e.g., https://api.nucleohq.com/api/v1/payment/webhook,        // "Debit Card", "upi", "net_banking", etc.
+//       payment_details,      // Object with method-specific details
+//       isSubscription,       // boolean flag
+//       subscriptionType      // e.g., "monthly", "yearly", "auto-debit", "one-time"
+//     } = req.body;
+//     const userId = req.user ? req.user._id : "65f123456789abcdef123456";
 
-    // Validate required fields
-    if (!payment_purpose || !payment_amount || !payee_ref || !payee_type ||
-        !receiver_ref || !receiver_type || !customer_email || !customer_phone ) {
-      console.log("Missing required fields:", req.body);
-      return res.status(400).json({ success: false, message: 'Missing required fields' });
-    }
-    let paymentMethod ="";
-    // Payment method–specific validations
-    if (paymentMethod === "Debit Card") {
-      if (!payment_details?.card_number || !payment_details?.expiry || !payment_details?.cvv) {
-        return res.status(400).json({ success: false, message: "Debit Card details are required" });
-      }
-    } else if (paymentMethod === "upi") {
-      if (!payment_details?.upi_id) {
-        return res.status(400).json({ success: false, message: "UPI ID is required" });
-      }
-    } else if (paymentMethod === "net_banking") {
-      if (!payment_details?.bank_code) {
-        return res.status(400).json({ success: false, message: "Bank code is required" });
-      }
-    }
-    else{
-      console.log("Payment method not defined yet");
-    }
+//     // Validate required fields
+//     if (!payment_purpose || !payment_amount || !payee_ref || !payee_type ||
+//         !receiver_ref || !receiver_type || !customer_email || !customer_phone ) {
+//       console.log("Missing required fields:", req.body);
+//       return res.status(400).json({ success: false, message: 'Missing required fields' });
+//     }
+//     let paymentMethod ="";
+//     // Payment method–specific validations
+//     if (paymentMethod === "Debit Card") {
+//       if (!payment_details?.card_number || !payment_details?.expiry || !payment_details?.cvv) {
+//         return res.status(400).json({ success: false, message: "Debit Card details are required" });
+//       }
+//     } else if (paymentMethod === "upi") {
+//       if (!payment_details?.upi_id) {
+//         return res.status(400).json({ success: false, message: "UPI ID is required" });
+//       }
+//     } else if (paymentMethod === "net_banking") {
+//       if (!payment_details?.bank_code) {
+//         return res.status(400).json({ success: false, message: "Bank code is required" });
+//       }
+//     }
+//     else{
+//       console.log("Payment method not defined yet");
+//     }
 
 
-    // Create a Payment record (using MongoDB _id as  order id for Cashfree)
-    const orderId = generateOrderId();
-    const PaymentModel = Payment;
-    const paymentRecord = new PaymentModel({
-      request_ref: orderId,
-      payment_purpose,
-      payment_amount,
-      payment_currency,
-      payee_ref: new mongoose.Types.ObjectId(payee_ref),
-      payee_type,
-      receiver_ref: new mongoose.Types.ObjectId(receiver_ref),
-      receiver_type,
-      payment_gateway: 'CASHFREE',
-      payment_status: 'PENDING',
-      created_by: new mongoose.Types.ObjectId(userId),
-      updated_by: new mongoose.Types.ObjectId(userId)
-    });
-    await paymentRecord.save();
+//     // Create a Payment record (using MongoDB _id as  order id for Cashfree)
+//     const orderId = generateOrderId();
+//     const PaymentModel = Payment;
+//     const paymentRecord = new PaymentModel({
+//       request_ref: orderId,
+//       payment_purpose,
+//       payment_amount,
+//       payment_currency,
+//       payee_ref: new mongoose.Types.ObjectId(payee_ref),
+//       payee_type,
+//       receiver_ref: new mongoose.Types.ObjectId(receiver_ref),
+//       receiver_type,
+//       payment_gateway: 'CASHFREE',
+//       payment_status: 'PENDING',
+//       created_by: new mongoose.Types.ObjectId(userId),
+//       updated_by: new mongoose.Types.ObjectId(userId)
+//     });
+//     await paymentRecord.save();
 
-    // Build payload for Cashfree order creation
-    const payload = {
-      order_id: paymentRecord._id.toString(), // Use DB _id as order id in gateway payload
-      order_amount: payment_amount,
-      order_currency: payment_currency,
-      customer_details: {
-        customer_id: userId,
-        customer_name: customer_name || 'Customer',
-        customer_email,
-        customer_phone
-      },
-      order_meta: { return_url, notify_url },
-      order_note: description || `Payment for ${payment_purpose}`,
-      payment_method: paymentMethod,
-      payment_details: payment_details || {}
-    };
+//     // Build payload for Cashfree order creation
+//     const payload = {
+//       order_id: paymentRecord._id.toString(), // Use DB _id as order id in gateway payload
+//       order_amount: payment_amount,
+//       order_currency: payment_currency,
+//       customer_details: {
+//         customer_id: userId,
+//         customer_name: customer_name || 'Customer',
+//         customer_email,
+//         customer_phone
+//       },
+//       order_meta: { return_url, notify_url },
+//       order_note: description || `Payment for ${payment_purpose}`,
+//       payment_method: paymentMethod,
+//       payment_details: payment_details || {}
+//     };
 
-    // Call Cashfree API through your handler
-    const result = await cashfreeGateway.initiatePayment(payload);
-    if (!result.success) {
-      await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
-        payment_status: 'FAILED',
-        updated_by: new mongoose.Types.ObjectId(userId)
-      });
-      return res.status(400).json({ success: false, message: result.error, error: result.gatewayResponse });
-    }
+//     // Call Cashfree API through your handler
+//     const result = await cashfreeGateway.initiatePayment(payload);
+//     if (!result.success) {
+//       await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
+//         payment_status: 'FAILED',
+//         updated_by: new mongoose.Types.ObjectId(userId)
+//       });
+//       return res.status(400).json({ success: false, message: result.error, error: result.gatewayResponse });
+//     }
 
-    // Create a Transaction record
-    const TransactionModel = Transaction;
-    const transactionRecord = new TransactionModel({
-      transaction_mode: 'PENDING', // Will be updated in webhook
-      payment_id: paymentRecord._id,
-      gateway_used: 'CASHFREE',
-      gateway_response: result.gatewayResponse,
-      created_by: new mongoose.Types.ObjectId(userId),
-      updated_by: new mongoose.Types.ObjectId(userId)
-    });
-    await transactionRecord.save();
+//     // Create a Transaction record
+//     const TransactionModel = Transaction;
+//     const transactionRecord = new TransactionModel({
+//       transaction_mode: 'PENDING', // Will be updated in webhook
+//       payment_id: paymentRecord._id,
+//       gateway_used: 'CASHFREE',
+//       gateway_response: result.gatewayResponse,
+//       created_by: new mongoose.Types.ObjectId(userId),
+//       updated_by: new mongoose.Types.ObjectId(userId)
+//     });
+//     await transactionRecord.save();
 
-    // Link the Transaction record to Payment record
-    await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
-      transaction: transactionRecord._id,
-      updated_by: new mongoose.Types.ObjectId(userId)
-    });
+//     // Link the Transaction record to Payment record
+//     await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
+//       transaction: transactionRecord._id,
+//       updated_by: new mongoose.Types.ObjectId(userId)
+//     });
 
-    // Save tokenized payment method details (if Debit Card and token exists)
-    if (paymentMethod === "Debit Card" && result.gatewayResponse && result.gatewayResponse.token_id) {
-      const PaymentMethod = require('../models/PaymentMethod');
-      const existingToken = await PaymentMethod.findOne({ user_id: userId, card_token: result.gatewayResponse.token_id });
-      if (!existingToken) {
-        const paymentMethodRecord = new PaymentMethod({
-          user_id: new mongoose.Types.ObjectId(userId),
-          method_type: "CARD",
-          card_token: result.gatewayResponse.token_id,
-          card_network: result.gatewayResponse.card_network || "UNKNOWN",
-          card_type: result.gatewayResponse.card_type || "DEBIT",
-          card_last4: result.gatewayResponse.card_last4 || "0000",
-          card_expiry: result.gatewayResponse.card_expiry || "00/00",
-          is_default: false
-        });
-        await paymentMethodRecord.save();
-      }
-    }
+//     // Save tokenized payment method details (if Debit Card and token exists)
+//     if (paymentMethod === "Debit Card" && result.gatewayResponse && result.gatewayResponse.token_id) {
+//       const PaymentMethod = require('../models/PaymentMethod');
+//       const existingToken = await PaymentMethod.findOne({ user_id: userId, card_token: result.gatewayResponse.token_id });
+//       if (!existingToken) {
+//         const paymentMethodRecord = new PaymentMethod({
+//           user_id: new mongoose.Types.ObjectId(userId),
+//           method_type: "CARD",
+//           card_token: result.gatewayResponse.token_id,
+//           card_network: result.gatewayResponse.card_network || "UNKNOWN",
+//           card_type: result.gatewayResponse.card_type || "DEBIT",
+//           card_last4: result.gatewayResponse.card_last4 || "0000",
+//           card_expiry: result.gatewayResponse.card_expiry || "00/00",
+//           is_default: false
+//         });
+//         await paymentMethodRecord.save();
+//       }
+//     }
 
-    // If subscription, and subscriptionType is not "one-time", then call Cashfree Subscription API
-    if (isSubscription && subscriptionType && subscriptionType !== "one-time") {
-      try {
-        const subscriptionPayload = {
-          order_id: paymentRecord._id.toString(),
-          plan_id: process.env.CASHFREE_SUBSCRIPTION_PLAN_ID, // Pre-configured plan in Cashfree dashboard
-          subscription_amount: payment_amount,
-          subscription_currency: payment_currency,
-          customer_details: {
-            customer_id: userId,
-            customer_name: customer_name || 'Customer',
-            customer_email,
-            customer_phone
-          },
-          order_meta: { return_url, notify_url },
-          order_note: description || `Subscription Payment for ${payment_purpose}`,
-          subscription_type: subscriptionType // e.g., "monthly", "yearly", "auto-debit"
-        };
+//     // If subscription, and subscriptionType is not "one-time", then call Cashfree Subscription API
+//     if (isSubscription && subscriptionType && subscriptionType !== "one-time") {
+//       try {
+//         const subscriptionPayload = {
+//           order_id: paymentRecord._id.toString(),
+//           plan_id: process.env.CASHFREE_SUBSCRIPTION_PLAN_ID, // Pre-configured plan in Cashfree dashboard
+//           subscription_amount: payment_amount,
+//           subscription_currency: payment_currency,
+//           customer_details: {
+//             customer_id: userId,
+//             customer_name: customer_name || 'Customer',
+//             customer_email,
+//             customer_phone
+//           },
+//           order_meta: { return_url, notify_url },
+//           order_note: description || `Subscription Payment for ${payment_purpose}`,
+//           subscription_type: subscriptionType // e.g., "monthly", "yearly", "auto-debit"
+//         };
 
-        const subResult = await axios.post(
-          process.env.CASHFREE_BASE_URL + '/subscriptions?api_version=' + API_VERSION,
-          subscriptionPayload,
-          {
-            headers: {
-              'x-api-version': API_VERSION,
-              'Content-Type': 'application/json',
-              'x-client-id': process.env.CASHFREE_APP_ID,
-              'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-              Accept: 'application/json'
-            }
-          }
-        );
-        console.log("Subscription API response:", subResult.data);
-        await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
-          subscription_id: subResult.data.subscription_id,
-          subscription_status: subResult.data.status,
-          updated_by: new mongoose.Types.ObjectId(userId)
-        });
-      } catch (subError) {
-        console.error("Recurring mandate setup error:", subError.response ? subError.response.data : subError.message);
-        // Optionally update paymentRecord to flag subscription mandate setup failure.
-      }
-    }
+//         const subResult = await axios.post(
+//           process.env.CASHFREE_BASE_URL + '/subscriptions?api_version=' + API_VERSION,
+//           subscriptionPayload,
+//           {
+//             headers: {
+//               'x-api-version': API_VERSION,
+//               'Content-Type': 'application/json',
+//               'x-client-id': process.env.CASHFREE_APP_ID,
+//               'x-client-secret': process.env.CASHFREE_SECRET_KEY,
+//               Accept: 'application/json'
+//             }
+//           }
+//         );
+//         console.log("Subscription API response:", subResult.data);
+//         await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
+//           subscription_id: subResult.data.subscription_id,
+//           subscription_status: subResult.data.status,
+//           updated_by: new mongoose.Types.ObjectId(userId)
+//         });
+//       } catch (subError) {
+//         console.error("Recurring mandate setup error:", subError.response ? subError.response.data : subError.message);
+//         // Optionally update paymentRecord to flag subscription mandate setup failure.
+//       }
+//     }
 
-    return res.status(200).json({
-      success: true,
-      payment_id: paymentRecord._id,
-      order_id: orderId,
-      payment_session_id: result.paymentSessionId,
-      payment_link: result.paymentLink
-    });
-  } catch (error) {
-    console.error('Payment creation error:', error);
-    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
-  }
-}
+//     return res.status(200).json({
+//       success: true,
+//       payment_id: paymentRecord._id,
+//       order_id: orderId,
+//       payment_session_id: result.paymentSessionId,
+//       payment_link: result.paymentLink
+//     });
+//   } catch (error) {
+//     console.error('Payment creation error:', error);
+//     return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+//   }
+// }
 
 /**
  * webhookHandler: Processes Cashfree webhook callbacks.
@@ -1265,7 +1312,7 @@ module.exports = {
     res.json({ success: true, data: [] });
   },
   webhookHandler,
-  createPayment,
+  createInvestmentPayment,
   getPaymentStatus,
   getAvailableGateways,
   handleWebhook,

@@ -10,7 +10,8 @@ const paymentController = require('../controllers/paymentController');
 // router.get('/webhook/:gatewayId',(req,res)=>{
 //   res.send('webhook is running fine');
 // });
-router.post('/create', paymentController.createPayment);
+// router.post('/create', paymentController.createPayment);
+router.post('/create',paymentController.createInvestmentPayment);
 // Payment status
 router.get('/status/:orderId', paymentController.getPaymentStatus);
 // Webhooks for different gateways
