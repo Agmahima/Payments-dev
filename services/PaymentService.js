@@ -108,6 +108,74 @@ class PaymentService {
     return commonPayload; // Return default if no transformation is needed
 }
 
+static async handleWebhook(gateway, payload, signature, headers) {
+  if (!gateway) {
+    throw new Error('Payment gateway is required');
+  }
+
+  // Normalize gateway name
+  gateway = gateway.toUpperCase();
+  
+  // First verify signature based on gateway
+  let isValid = false;
+  
+  switch (gateway) {
+    case 'RAZORPAY':
+      isValid = RazorpayService.verifyWebhookSignature(payload, signature);
+      break;
+    case 'CASHFREE':
+      isValid = CashfreeService.verifyWebhookSignature(payload, signature);
+      break;
+    default:
+      throw new Error('Invalid payment gateway');
+  }
+  
+  if (!isValid) {
+    throw new Error('Invalid webhook signature');
+  }
+  
+  // Process the webhook data
+  let parsedData;
+  
+  switch (gateway) {
+    case 'RAZORPAY':
+      parsedData = RazorpayService.processWebhookData(payload);
+      break;
+    case 'CASHFREE':
+      parsedData = CashfreeService.processWebhookData(payload);
+      break;
+    default:
+      throw new Error('Invalid payment gateway');
+  }
+  
+  // Update database based on event type
+  if (parsedData.event.startsWith('subscription.')) {
+    return await PaymentService.handleSubscriptionEvent(parsedData);
+  } else if (parsedData.event.startsWith('payment.')) {
+    return await PaymentService.handlePaymentEvent(parsedData);
+  } else {
+    throw new Error(`Unhandled event type: ${parsedData.event}`);
+  }
+}
+
+// Helper methods to handle different event types
+static async handleSubscriptionEvent(data) {
+  const { event, subscription_id, status } = data;
+  
+  // Update subscription status in your database
+  // This would call into your data layer or model methods
+  
+  return { success: true, event, subscription_id, processed: true };
+}
+
+static async handlePaymentEvent(data) {
+  const { event, payment_id, order_id, status } = data;
+  
+  // Update payment status in your database
+  // This would call into your data layer or model methods
+  
+  return { success: true, event, payment_id, processed: true };
+}
 
 }
 

@@ -262,6 +262,74 @@ class CashfreeService {
       }
     
   }
+
+  static verifyWebhookSignature(payload, signature) {
+    try {
+      if (!signature) {
+        console.error('Cashfree webhook signature is missing');
+        return false;
+      }
+
+      const webhookSecret = process.env.CASHFREE_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        console.error('Cashfree webhook secret is not configured');
+        return false;
+      }
+
+      // If payload is an object, stringify it
+      const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      
+      // Create HMAC SHA256 hash
+      const crypto = require('crypto');
+      const computedSignature = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(body)
+        .digest('hex');
+      
+      // Compare signatures
+      return computedSignature === signature;
+    } catch (error) {
+      console.error('Error verifying Cashfree webhook signature:', error);
+      return false;
+    }
+  }
+
+  static processWebhookData(payload) {
+    try {
+      const eventType = payload.event || null;
+      
+      // Handle subscription events
+      if (eventType === 'SUBSCRIPTION_ACTIVATED' || 
+          eventType === 'SUBSCRIPTION_CANCELLED' || 
+          eventType === 'SUBSCRIPTION_PAUSED') {
+        return {
+          event: eventType.toLowerCase().replace('_', '.'),
+          subscription_id: payload.data?.subscriptionId || null,
+          payment_id: payload.data?.cfPaymentId || null,
+          status: payload.data?.status || null
+        };
+      }
+      
+      // Handle payment events
+      else if (eventType === 'PAYMENT_SUCCESS_WEBHOOK' || 
+               eventType === 'PAYMENT_FAILED_WEBHOOK') {
+        return {
+          event: eventType === 'PAYMENT_SUCCESS_WEBHOOK' ? 'payment.success' : 'payment.failed',
+          payment_id: payload.data?.payment?.cfPaymentId || null,
+          order_id: payload.data?.order?.orderId || null,
+          status: eventType === 'PAYMENT_SUCCESS_WEBHOOK' ? 'success' : 'failed'
+        };
+      }
+      
+      return {
+        event: eventType,
+        status: null
+      };
+    } catch (error) {
+      console.error('Error processing Cashfree webhook data:', error);
+      return null;
+    }
+  }
 }
 
 module.exports = CashfreeService;

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const subscriptionController = require('../controllers/subscriptionController');
+const webhookController = require('../controllers/webhookController');
 router.post('/plan', subscriptionController.createPlan);
 router.post('/create', subscriptionController.createSubscription);
 router.put('/plan/:planId', subscriptionController.updatePlan);
@@ -13,8 +14,8 @@ router.get('/subscription', subscriptionController.getAllSubscriptions);
 router.get('/subscription/:subscriptionId', subscriptionController.getSubscription);
 router.post('/subscription/:subscriptionId/cancel', subscriptionController.cancelSubscription);
 router.post('/subscription/:subscriptionId/update', subscriptionController.updateSubscription);
-router.post('/webhook/:gateway', subscriptionController.handleRazorpayWebhook);
-
+// router.post('/webhook/:gateway', subscriptionController.handleRazorpayWebhook);
+router.post('/webhook/:gateway', webhookController.handleWebhook);
 
 
 

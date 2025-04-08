@@ -203,6 +203,71 @@ class RazorpayService {
         throw error;
       }
   }
+
+  static verifyWebhookSignature(payload, signature) {
+    try {
+      if (!signature) {
+        console.error('Razorpay webhook signature is missing');
+        return false;
+      }
+
+      const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+      if (!webhookSecret) {
+        console.error('Razorpay webhook secret is not configured');
+        return false;
+      }
+
+      // If payload is an object, stringify it
+      const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+      
+      // Create HMAC SHA256 hash
+      const crypto = require('crypto');
+      const expectedSignature = crypto
+        .createHmac('sha256', webhookSecret)
+        .update(body)
+        .digest('hex');
+      
+      // Compare signatures
+      return expectedSignature === signature;
+    } catch (error) {
+      console.error('Error verifying Razorpay webhook signature:', error);
+      return false;
+    }
+  }
+
+  static processWebhookData(payload) {
+    try {
+      const event = payload.event || null;
+      
+      // Handle subscription events
+      if (event && event.startsWith('subscription.')) {
+        return {
+          event: event,
+          subscription_id: payload.payload?.subscription?.entity?.id || null,
+          payment_id: payload.payload?.payment?.entity?.id || null,
+          status: payload.payload?.subscription?.entity?.status || null
+        };
+      }
+      
+      // Handle payment events
+      else if (event && event.startsWith('payment.')) {
+        return {
+          event: event,
+          payment_id: payload.payload?.payment?.entity?.id || null,
+          order_id: payload.payload?.payment?.entity?.order_id || null,
+          status: payload.payload?.payment?.entity?.status || null
+        };
+      }
+      
+      return {
+        event: event,
+        status: null
+      };
+    } catch (error) {
+      console.error('Error processing Razorpay webhook data:', error);
+      return null;
+    }
+  }
 }
 
 module.exports = RazorpayService;
