@@ -11,34 +11,25 @@ const paymentRoutes = require('./routes/paymentRoutes');
 const subscriptionRoutes = require('./routes/subscriptionRoutes');
 
 const app = express();
+// app.post('/api/payments/webhook/razorpay', express.raw({ type: 'application/json' }), handleRazorpayWebhook);
 
-// Raw body parser specifically for webhooks
-app.use('/api/payments/webhook', express.raw({ type: 'application/json' }));
-
-// app.use('/api/subscriptions/webhook', express.json({
-//   verify: (req, res, buf) => {
-//     req.rawBody = buf;
-//   }
-// }));
-
-// Regular JSON parsing for other routes
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Process webhook raw body
-app.use('/api/payments/webhook', (req, res, next) => {
-  if (req.body) {
-    const rawBody = req.body.toString('utf8');
-    req.rawBody = rawBody;
+// Add raw body parser for webhooks
+app.use('/api/payments/webhook/:gateway', express.raw({type: 'application/json'}), (req, res, next) => {
+  if (req.body.length) {
+    req.rawBody = req.body;
     try {
-      req.body = JSON.parse(rawBody);
+      req.body = JSON.parse(req.body);
     } catch (error) {
       console.error('Error parsing webhook body:', error);
-      return res.status(400).json({ error: 'Invalid JSON' });
+      return res.status(400).json({ error: 'Invalid JSON payload' });
     }
   }
   next();
 });
+
+// Regular JSON parser for other routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.use(bodyParser.json({
   verify: (req, res, buf) => {
@@ -46,32 +37,6 @@ app.use(bodyParser.json({
   }
 }));
 
-
-// app.use('/api/subscriptions/webhook', 
-//   express.raw({ type: 'application/json' }), 
-//   (req, res, next) => {
-//     try {
-//       // Store raw body for signature verification
-//       const rawBody = req.body;
-//       console.log(req.rawBody);
-      
-//       // Parse body only if it's a buffer
-//       if (Buffer.isBuffer(rawBody)) {
-//         req.rawBody = rawBody;
-//         req.body = JSON.parse(rawBody.toString('utf8'));
-//         console.log('Webhook payload:', req.body);
-//       } else {
-//         console.log('Raw body type:', typeof rawBody);
-//         req.rawBody = rawBody;
-//         req.body = rawBody;
-//       }
-//       next();
-//     } catch (error) {
-//       console.error('Error parsing webhook body:', error);
-//       console.error('Raw body:', req.body);
-//       return res.status(400).json({ error: 'Invalid JSON payload' });
-//     }
-// });
 const crypto = require('crypto');
 
 app.use('/api/subscriptions/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
@@ -150,10 +115,6 @@ const verifyWebhookSignature = (rawBody, receivedSignature, webhookSecret) => {
     return false;
   }
 };
-
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // CORS middleware
 app.use((req, res, next) => {

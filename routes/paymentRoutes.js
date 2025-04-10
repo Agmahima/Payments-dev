@@ -14,8 +14,14 @@ const paymentController = require('../controllers/paymentController');
 router.post('/create',paymentController.createInvestmentPayment);
 // Payment status
 router.get('/status/:orderId', paymentController.getPaymentStatus);
-// Webhooks for different gateways
-router.post('/webhook/:gateway', paymentController.handleWebhook);
+// // Webhooks for different gateways
+// router.post('/webhook/:gateway', paymentController.handleWebhook);
+router.post(
+    '/webhook/razorpay',
+    express.raw({ type: 'application/json' }), 
+    paymentController.processRazorpayWebhook
+  );
+  
 // Payment verification (for Razorpay)
 router.post('/verify', paymentController.verifyPayment);
 // router.get('/subscriptions', paymentController.getUserSubscriptions);

@@ -206,6 +206,7 @@ class RazorpayService {
 
   static verifyWebhookSignature(payload, signature) {
     try {
+      console.log("payload",payload);
       if (!signature) {
         console.error('Razorpay webhook signature is missing');
         return false;

@@ -116,22 +116,44 @@ static async handleWebhook(gateway, payload, signature, headers) {
   // Normalize gateway name
   gateway = gateway.toUpperCase();
   
-  // First verify signature based on gateway
-  let isValid = false;
-  
-  switch (gateway) {
-    case 'RAZORPAY':
-      isValid = RazorpayService.verifyWebhookSignature(payload, signature);
-      break;
-    case 'CASHFREE':
-      isValid = CashfreeService.verifyWebhookSignature(payload, signature);
-      break;
-    default:
-      throw new Error('Invalid payment gateway');
-  }
-  
-  if (!isValid) {
-    throw new Error('Invalid webhook signature');
+  // Skip signature verification in development
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`Skipping ${gateway} signature verification in development`);
+  } else {
+    if (!signature) {
+      console.error(`${gateway} webhook signature is missing`);
+      throw new Error('Webhook signature is missing');
+    }
+
+    // Verify signature based on gateway
+    let isValid = false;
+    
+    switch (gateway) {
+      case 'RAZORPAY':
+        const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+        if (!webhookSecret) {
+          throw new Error('RAZORPAY_WEBHOOK_SECRET is not configured');
+        }
+        // Use crypto to verify signature
+        const crypto = require('crypto');
+        const expectedSignature = crypto
+          .createHmac('sha256', webhookSecret)
+          .update(JSON.stringify(payload))
+          .digest('hex');
+        isValid = expectedSignature === signature;
+        break;
+
+      case 'CASHFREE':
+        isValid = CashfreeService.verifyWebhookSignature(payload, signature);
+        break;
+
+      default:
+        throw new Error('Invalid payment gateway');
+    }
+    
+    if (!isValid) {
+      throw new Error('Invalid webhook signature');
+    }
   }
   
   // Process the webhook data
@@ -147,14 +169,15 @@ static async handleWebhook(gateway, payload, signature, headers) {
     default:
       throw new Error('Invalid payment gateway');
   }
-  
-  // Update database based on event type
+
+  // Handle the parsed webhook data
   if (parsedData.event.startsWith('subscription.')) {
     return await PaymentService.handleSubscriptionEvent(parsedData);
-  } else if (parsedData.event.startsWith('payment.')) {
+  } else if (parsedData.event.startsWith('payment.') || parsedData.event === 'order.paid') {
     return await PaymentService.handlePaymentEvent(parsedData);
   } else {
-    throw new Error(`Unhandled event type: ${parsedData.event}`);
+    console.log(`Unhandled event type: ${parsedData.event}`);
+    return { success: true, event: parsedData.event, processed: false };
   }
 }
 

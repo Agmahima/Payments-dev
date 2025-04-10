@@ -12,31 +12,7 @@ const geoip = require('../utils/geoip'); // You'll need to implement this
 const paymentService = require('../services/PaymentService.js');
 
 
-
-
 //investment payment through razorpay
-// async function createInvestmentPayment(req, res) {
-//   try {
-//     const {gateway}=req.body;
-//     console.log("Request body:", req.body);
-//     if(!gateway){
-//       return res.status(400).json({success:false,error:'Gateway not specified'});
-//     }
-//     const paymentData = req.body;
-//     // const response = await processPayment(paymentData);
-//     const response = await paymentService.processPayment(paymentData);
-//     return res.json(response);
-   
-//   } catch (error) {
-//     console.error('Error creating investment payment:', error);
-//     return res.status(500).json({
-//       success: false,
-//       message: 'Internal server error',
-//       error: error.message
-//     });
-//   }
-// }
-
 async function createInvestmentPayment(req, res) {
   try {
     const { gateway } = req.body;
@@ -147,199 +123,6 @@ async function getPGRequestUrl(req, res) {
     return res.status(500).json({ error: error.message });
   }
 }
-
-/**
- * createPayment
- * Handles both one-time (Investment) and subscription payments.
- */
-// async function createPayment(req, res) {
-//   try {
-//     console.log("Request body:", req.body);
-//     const {
-//       payment_purpose,      // "Investment" or "Subscription"
-//       payment_amount,
-//       payment_currency = 'INR',
-//       payee_ref,
-//       payee_type,
-//       receiver_ref,
-//       receiver_type,
-//       customer_name,
-//       customer_email,
-//       customer_phone,
-//       description,
-//       return_url,           // e.g., https://investment.nucleohq.com/payment-status?order_id={order_id}
-//       notify_url,           // e.g., https://api.nucleohq.com/api/v1/payment/webhook,        // "Debit Card", "upi", "net_banking", etc.
-//       payment_details,      // Object with method-specific details
-//       isSubscription,       // boolean flag
-//       subscriptionType      // e.g., "monthly", "yearly", "auto-debit", "one-time"
-//     } = req.body;
-//     const userId = req.user ? req.user._id : "65f123456789abcdef123456";
-
-//     // Validate required fields
-//     if (!payment_purpose || !payment_amount || !payee_ref || !payee_type ||
-//         !receiver_ref || !receiver_type || !customer_email || !customer_phone ) {
-//       console.log("Missing required fields:", req.body);
-//       return res.status(400).json({ success: false, message: 'Missing required fields' });
-//     }
-//     let paymentMethod ="";
-//     // Payment method–specific validations
-//     if (paymentMethod === "Debit Card") {
-//       if (!payment_details?.card_number || !payment_details?.expiry || !payment_details?.cvv) {
-//         return res.status(400).json({ success: false, message: "Debit Card details are required" });
-//       }
-//     } else if (paymentMethod === "upi") {
-//       if (!payment_details?.upi_id) {
-//         return res.status(400).json({ success: false, message: "UPI ID is required" });
-//       }
-//     } else if (paymentMethod === "net_banking") {
-//       if (!payment_details?.bank_code) {
-//         return res.status(400).json({ success: false, message: "Bank code is required" });
-//       }
-//     }
-//     else{
-//       console.log("Payment method not defined yet");
-//     }
-
-
-//     // Create a Payment record (using MongoDB _id as  order id for Cashfree)
-//     const orderId = generateOrderId();
-//     const PaymentModel = Payment;
-//     const paymentRecord = new PaymentModel({
-//       request_ref: orderId,
-//       payment_purpose,
-//       payment_amount,
-//       payment_currency,
-//       payee_ref: new mongoose.Types.ObjectId(payee_ref),
-//       payee_type,
-//       receiver_ref: new mongoose.Types.ObjectId(receiver_ref),
-//       receiver_type,
-//       payment_gateway: 'CASHFREE',
-//       payment_status: 'PENDING',
-//       created_by: new mongoose.Types.ObjectId(userId),
-//       updated_by: new mongoose.Types.ObjectId(userId)
-//     });
-//     await paymentRecord.save();
-
-//     // Build payload for Cashfree order creation
-//     const payload = {
-//       order_id: paymentRecord._id.toString(), // Use DB _id as order id in gateway payload
-//       order_amount: payment_amount,
-//       order_currency: payment_currency,
-//       customer_details: {
-//         customer_id: userId,
-//         customer_name: customer_name || 'Customer',
-//         customer_email,
-//         customer_phone
-//       },
-//       order_meta: { return_url, notify_url },
-//       order_note: description || `Payment for ${payment_purpose}`,
-//       payment_method: paymentMethod,
-//       payment_details: payment_details || {}
-//     };
-
-//     // Call Cashfree API through your handler
-//     const result = await cashfreeGateway.initiatePayment(payload);
-//     if (!result.success) {
-//       await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
-//         payment_status: 'FAILED',
-//         updated_by: new mongoose.Types.ObjectId(userId)
-//       });
-//       return res.status(400).json({ success: false, message: result.error, error: result.gatewayResponse });
-//     }
-
-//     // Create a Transaction record
-//     const TransactionModel = Transaction;
-//     const transactionRecord = new TransactionModel({
-//       transaction_mode: 'PENDING', // Will be updated in webhook
-//       payment_id: paymentRecord._id,
-//       gateway_used: 'CASHFREE',
-//       gateway_response: result.gatewayResponse,
-//       created_by: new mongoose.Types.ObjectId(userId),
-//       updated_by: new mongoose.Types.ObjectId(userId)
-//     });
-//     await transactionRecord.save();
-
-//     // Link the Transaction record to Payment record
-//     await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
-//       transaction: transactionRecord._id,
-//       updated_by: new mongoose.Types.ObjectId(userId)
-//     });
-
-//     // Save tokenized payment method details (if Debit Card and token exists)
-//     if (paymentMethod === "Debit Card" && result.gatewayResponse && result.gatewayResponse.token_id) {
-//       const PaymentMethod = require('../models/PaymentMethod');
-//       const existingToken = await PaymentMethod.findOne({ user_id: userId, card_token: result.gatewayResponse.token_id });
-//       if (!existingToken) {
-//         const paymentMethodRecord = new PaymentMethod({
-//           user_id: new mongoose.Types.ObjectId(userId),
-//           method_type: "CARD",
-//           card_token: result.gatewayResponse.token_id,
-//           card_network: result.gatewayResponse.card_network || "UNKNOWN",
-//           card_type: result.gatewayResponse.card_type || "DEBIT",
-//           card_last4: result.gatewayResponse.card_last4 || "0000",
-//           card_expiry: result.gatewayResponse.card_expiry || "00/00",
-//           is_default: false
-//         });
-//         await paymentMethodRecord.save();
-//       }
-//     }
-
-//     // If subscription, and subscriptionType is not "one-time", then call Cashfree Subscription API
-//     if (isSubscription && subscriptionType && subscriptionType !== "one-time") {
-//       try {
-//         const subscriptionPayload = {
-//           order_id: paymentRecord._id.toString(),
-//           plan_id: process.env.CASHFREE_SUBSCRIPTION_PLAN_ID, // Pre-configured plan in Cashfree dashboard
-//           subscription_amount: payment_amount,
-//           subscription_currency: payment_currency,
-//           customer_details: {
-//             customer_id: userId,
-//             customer_name: customer_name || 'Customer',
-//             customer_email,
-//             customer_phone
-//           },
-//           order_meta: { return_url, notify_url },
-//           order_note: description || `Subscription Payment for ${payment_purpose}`,
-//           subscription_type: subscriptionType // e.g., "monthly", "yearly", "auto-debit"
-//         };
-
-//         const subResult = await axios.post(
-//           process.env.CASHFREE_BASE_URL + '/subscriptions?api_version=' + API_VERSION,
-//           subscriptionPayload,
-//           {
-//             headers: {
-//               'x-api-version': API_VERSION,
-//               'Content-Type': 'application/json',
-//               'x-client-id': process.env.CASHFREE_APP_ID,
-//               'x-client-secret': process.env.CASHFREE_SECRET_KEY,
-//               Accept: 'application/json'
-//             }
-//           }
-//         );
-//         console.log("Subscription API response:", subResult.data);
-//         await PaymentModel.findByIdAndUpdate(paymentRecord._id, {
-//           subscription_id: subResult.data.subscription_id,
-//           subscription_status: subResult.data.status,
-//           updated_by: new mongoose.Types.ObjectId(userId)
-//         });
-//       } catch (subError) {
-//         console.error("Recurring mandate setup error:", subError.response ? subError.response.data : subError.message);
-//         // Optionally update paymentRecord to flag subscription mandate setup failure.
-//       }
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       payment_id: paymentRecord._id,
-//       order_id: orderId,
-//       payment_session_id: result.paymentSessionId,
-//       payment_link: result.paymentLink
-//     });
-//   } catch (error) {
-//     console.error('Payment creation error:', error);
-//     return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
-//   }
-// }
 
 /**
  * webhookHandler: Processes Cashfree webhook callbacks.
@@ -912,7 +695,7 @@ exports.getPaymentStatus = async (req, res) => {
         amount: transaction.amount,
         currency: transaction.currency,
         transaction_mode: transaction.transaction_mode,
-        created_at: transaction.createdAt,
+        created_at: transaction.CreatedAt,
         updated_at: transaction.updatedAt
       } : null
     });
@@ -931,169 +714,234 @@ exports.getPaymentStatus = async (req, res) => {
 const handleWebhook = async (req, res) => {
   try {
     const { gateway } = req.params;
-    const signature = 
-      req.headers['x-razorpay-signature'] || 
-      req.headers['x-cashfree-signature'] ||
-      req.headers['x-webhook-signature'] ||
-      req.headers['x-webhook-signature-256'];
+    console.log("payload:",req.body);
+    // Get signature based on gateway type
+    let signature;
+    if (gateway.toLowerCase() === 'razorpay') {
+      signature = req.headers['x-razorpay-signature'];
+      console.log("Signature",signature);
+      // Log webhook details for debugging
+      console.log('Razorpay webhook received:', {
+        signature: signature ? 'Present' : 'Missing',
+        event: req.body.event,
+        payloadKeys: Object.values(req.body)
+      });
+
+      // Process webhook directly in development
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('Processing webhook in development mode');
+        await processRazorpayWebhook(req.body);
+        return res.status(200).json({ received: true, processed: true });
+      }
+    } else {
+      signature = req.headers['x-cashfree-signature'];
+    }
+
+    // Process webhook through PaymentService
+    const result = await paymentService.handleWebhook(
+      gateway,
+      req.body,
+      signature,
+      req.headers
+    );
     
-    // Log the incoming webhook
-    console.log(`Webhook received from ${gateway}:`, {
-      signature: signature ? 'Present' : 'Missing',
-      body: typeof req.body === 'string' ? 'String payload' : 'JSON payload'
+    return res.status(200).json({ received: true, processed: true });
+  } catch (error) {
+    console.error('Webhook processing error:', error);
+    // Still return 200 to prevent retries
+    return res.status(200).json({ 
+      received: true, 
+      error: error.message 
+    });
+  }
+};
+
+// Helper function to process Razorpay webhooks
+const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
+  try {
+    console.log("updatePaymentStatus called with:", paymentDetails);
+    console.log(`Updating payment status for order ${orderId} to ${status}`);
+    
+    if (!orderId) {
+      throw new Error('Order ID is required to update payment status');
+    }
+  
+    // Update the Payment document. (Assuming orderId here is _id; adjust if needed.)
+    const payment = await Payment.findOneAndUpdate(
+      { _id: orderId },
+      {
+        $set: {
+          payment_status: status,
+          payment_gateway_response: paymentDetails.gateway_response,
+          updated_at: new Date(),
+          gateway_payment_id: paymentDetails.payment_id
+        }
+      },
+      { new: true }
+    );
+  
+    if (!payment) {
+      console.error(`Payment record not found for order ID: ${orderId}`);
+      return null;
+    }
+  
+    console.log(`Payment ${payment._id} updated to status: ${status}`);
+  
+    // Determine payment method from the Razorpay response inside gateway_response if available
+    let paymentMethod = 'OTHER';
+    if (
+      paymentDetails.gateway_response &&
+      paymentDetails.gateway_response.data &&
+      paymentDetails.gateway_response.data.payment &&
+      paymentDetails.gateway_response.data.payment.payment_method
+    ) {
+      const methodData = paymentDetails.gateway_response.data.payment.payment_method;
+      if (methodData.card) {
+        paymentMethod = 'CARD';
+      } else if (methodData.upi) {
+        paymentMethod = 'UPI';
+      } else if (methodData.netbanking) {
+        paymentMethod = 'NET_BANKING';
+      } else if (methodData.app) {
+        paymentMethod = 'WALLET';
+      }
+    }
+  
+    const transaction = await Transaction.findOneAndUpdate(
+      { payment_id: payment._id },
+      {
+        $set: {
+          transaction_status: status,
+          transaction_id: paymentDetails.payment_id,
+          transaction_mode: paymentMethod,
+          gateway_response: paymentDetails.gateway_response,
+          updated_at: new Date()
+        }
+      },
+      { new: true }
+    );
+  
+    if (!transaction) {
+      console.error(`Transaction record not found for payment ID: ${payment._id}`);
+    } else {
+      console.log(`Transaction ${transaction._id} updated with mode: ${paymentMethod}`);
+    }
+  
+    return { payment, transaction };
+  } catch (error) {
+    console.error('Error updating payment status:', error);
+    throw error;
+  }
+};
+
+const processRazorpayWebhook = async (req, res) => {
+  try {
+    // Get signature from headers.
+    const webhookSignature = req.headers['x-razorpay-signature'];
+    console.log("Signature:", webhookSignature);
+    
+    // Log details for debugging
+    console.log('Razorpay webhook received:', {
+      signature: webhookSignature ? 'Present' : 'Missing',
+      event: req.body.event,
+      payloadKeys: Object.keys(req.body)
     });
     
-    // Skip signature verification in development if configured
-    let isValid = process.env.SKIP_WEBHOOK_VERIFICATION === 'true';
+    // Use the raw body (provided by express.raw middleware)
+    if (!req.rawBody) {
+      console.error('Raw body not available for verification');
+      return res.status(200).json({ received: true, error: 'Raw body missing' });
+    }
+    const rawBody = req.rawBody.toString('utf8'); // ensure proper encoding
     
-    if (!isValid) {
-      // Verify webhook signature based on gateway
-      if (gateway.toLowerCase() === 'razorpay') {
-        isValid = razorpayGateway.verifyWebhookSignature(req.body, signature);
-      } else if (gateway.toLowerCase() === 'cashfree') {
-        isValid = cashfreeGateway.verifyWebhookSignature(req.body, signature);
-      }
-      
-      if (!isValid) {
-        console.error(`Invalid signature for ${gateway} webhook`);
-        return res.status(400).json({ error: 'Invalid signature' });
-      }
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error("Webhook secret not defined");
+      return res.status(500).json({ received: true, error: "Webhook secret not defined" });
     }
     
-    // Process webhook based on gateway type
-    if (gateway.toLowerCase() === 'razorpay') {
-      // Process Razorpay webhook (implement or keep existing code)
-      const webhookData = await razorpayGateway.processWebhookData(req.body);
-      // Handle Razorpay-specific logic
-      // ...
-    } 
-    else if (gateway.toLowerCase() === 'cashfree') {
-      // Process Cashfree webhook data
-      const webhookData = cashfreeGateway.processWebhookData(req.body);
-      console.log('Processed Cashfree webhook data:', webhookData);
-      
-      if (!webhookData) {
-        throw new Error('Failed to process Cashfree webhook data');
-      }
-
-      // Extract key information
-      const { event, orderId, paymentId, amount, status, paymentMethod, subscriptionId } = webhookData;
-      
-      // Handle different event types
-      if (event === 'payment.success' || event === 'PAYMENT_SUCCESS_WEBHOOK') {
-        console.log(`Payment success for order ${orderId}, method: ${paymentMethod}, amount: ${amount}`);
-        
-        // Check for card details to tokenize
-        if (req.body.data && req.body.data.payment && req.body.data.payment.payment_method && 
-          req.body.data.payment.payment_method.card && req.body.data.customer_details) {
-        
-        const payment = req.body.data.payment;
-        const cardDetails = payment.payment_method.card;
-        const customer_details = req.body.data.customer_details;
-        
-        // Save tokenized card if customer details are available
-        if (customer_details?.customer_id) {
-          
-          const tokenData = {
-            user_id: customer_details.customer_id,
-            method_type: 'CARD',
-            card_token: payment.cf_token_id || `cf_${payment.cf_payment_id}`,
-            card_network: cardDetails.card_network,
-            card_type: cardDetails.card_type,
-            card_last4: cardDetails.card_number.slice(-4),
-            card_bank_name: cardDetails.card_bank_name,
-            gateway: 'CASHFREE',
-            last_used: new Date(),
-            is_default: false
-          };
-
-          // Check if this is the first card for the user
-          const existingCards = await PaymentMethod.countDocuments({
-            user_id: customer_details.customer_id,
-            method_type: 'CARD'
+    // Compute signature using the raw body
+    const expectedSignature = crypto.createHmac('sha256', webhookSecret)
+                                    .update(rawBody)
+                                    .digest('hex');
+    console.log('Signature verification:', {
+      expected: expectedSignature.substring(0, 10) + '...',
+      received: webhookSignature.substring(0, 10) + '...',
+      matches: expectedSignature === webhookSignature
+    });
+    
+    if (expectedSignature !== webhookSignature) {
+      console.error('Signature mismatch');
+      return res.status(400).json({ received: true, error: "Invalid signature" });
+    }
+    
+    // Process the webhook event; note: payload is inside req.body.payload
+    const event = req.body.event;
+    const payload = req.body.payload;
+    console.log(`Processing webhook event: ${event}`);
+    
+    switch (event) {
+      case 'payment.authorized':
+        if (payload && payload.payment && payload.payment.entity) {
+          const payment = payload.payment.entity;
+          await updatePaymentStatus(payment.order_id, 'SUCCESS', {
+            payment_id: payment.id,
+            amount: payment.amount / 100, // convert paise to rupees
+            method: payment.method,
+            gateway_response: req.body
           });
-          
-          if (existingCards === 0) {
-            tokenData.is_default = true;
+        }
+        break;
+  
+      case 'payment.captured':
+        if (payload && payload.payment && payload.payment.entity) {
+          const payment = payload.payment.entity;
+          await updatePaymentStatus(payment.order_id, 'SUCCESS', {
+            payment_id: payment.id,
+            amount: payment.amount / 100,
+            method: payment.method,
+            gateway_response: req.body
+          });
+        }
+        break;
+  
+      case 'order.paid':
+        if (payload && payload.order && payload.order.entity) {
+          const order = payload.order.entity;
+          // Optionally, if a payment entity is also present:
+          let p = null;
+          if (payload.payment && payload.payment.entity) {
+            p = payload.payment.entity;
           }
-
-          // Save or update the payment method
-          await PaymentMethod.findOneAndUpdate(
-            { 
-              card_token: tokenData.card_token,
-              gateway: 'CASHFREE'
-            },
-            tokenData,
-            { upsert: true, new: true }
-          );
-
-          console.log('Saved tokenized card:', tokenData.card_last4);
+          await updatePaymentStatus(order.id, 'SUCCESS', {
+            payment_id: p ? p.id : null,
+            amount: order.amount / 100,
+            gateway_response: req.body
+          });
         }
-      }
-
-
-        // Create payment details object with all necessary information
-        const paymentDetails = {
-          payment_id: paymentId,
-          payment_method: paymentMethod || 'OTHER',
-          amount: amount,
-          gateway_response: req.body
-        };
-        
-        // Update payment status with all details
-        await updatePaymentStatus(orderId, 'SUCCESS', paymentDetails);
-      } 
-      else if (event === 'payment.failed' || event === 'PAYMENT_FAILED') {
-        console.log(`Payment failed for order ${orderId}`);
-        
-        const paymentDetails = {
-          payment_id: paymentId,
-          payment_method: paymentMethod || 'OTHER',
-          amount: amount,
-          gateway_response: req.body
-        };
-        
-        await updatePaymentStatus(orderId, 'FAILED', paymentDetails);
-      }
-      // Handle subscription-related events
-      else if (event && event.startsWith('subscription.')) {
-        switch (event) {
-          case 'subscription.created':
-            await updateSubscriptionStatus(subscriptionId, 'CREATED');
-            break;
-          case 'subscription.activated':
-            await updateSubscriptionStatus(subscriptionId, 'ACTIVE');
-            break;
-          case 'subscription.cancelled':
-            await updateSubscriptionStatus(subscriptionId, 'CANCELLED');
-            break;
-          case 'subscription.payment.success':
-            await handleSubscriptionPayment(subscriptionId, 'SUCCESS', {
-              payment_id: paymentId,
-              payment_method: paymentMethod,
-              amount: amount
-            });
-            break;
-          case 'subscription.payment.failed':
-            await handleSubscriptionPayment(subscriptionId, 'FAILED', {
-              payment_id: paymentId,
-              payment_method: paymentMethod,
-              amount: amount
-            });
-            break;
-          default:
-            console.log(`Unhandled subscription event: ${event}`);
+        break;
+  
+      case 'payment.failed':
+        if (payload && payload.payment && payload.payment.entity) {
+          const payment = payload.payment.entity;
+          await updatePaymentStatus(payment.order_id, 'FAILED', {
+            payment_id: payment.id,
+            amount: payment.amount / 100,
+            error: payment.error_description,
+            gateway_response: req.body
+          });
         }
-      } else {
-        console.log(`Unhandled event type: ${event}`);
-      }
+        break;
+  
+      default:
+        console.log(`Unhandled Razorpay event: ${event}`);
     }
     
-    // Always respond with 200 to acknowledge receipt
     return res.status(200).json({ received: true });
+    
   } catch (error) {
-    console.error('Error processing webhook:', error);
-    // Still return 200 to prevent retries from the payment gateway
+    console.error('Error processing Razorpay webhook:', error);
+    // Always return 200 status so Razorpay doesn't retry endlessly.
     return res.status(200).json({ received: true, error: error.message });
   }
 };
@@ -1165,78 +1013,7 @@ const verifyPayment = async (req, res) => {
 /**
  * Update payment status helper function
  */
-const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
-  try {
-    console.log("PD",paymentDetails);
-    console.log(`Updating payment status for order ${orderId} to ${status}`);
-    
-    if (!orderId) {
-      throw new Error('Order ID is required to update payment status');
-    }
 
-    // Update Payment document
-    const payment = await Payment.findOneAndUpdate(
-      { _id: orderId },
-      {
-        $set: {
-          payment_status: status,
-          payment_gateway_response: paymentDetails.gateway_response,
-          updated_at: new Date(),
-          gateway_payment_id: paymentDetails.payment_id
-        }
-      },
-      { new: true }
-    );
-
-    if (!payment) {
-      console.error(`Payment record not found for order ID: ${orderId}`);
-      return null;
-    }
-
-    console.log(`Payment ${payment._id} updated to status: ${status}`);
-
-    // Get payment method from Cashfree response
-    let paymentMethod = 'OTHER';
-    if (paymentDetails.gateway_response?.data?.payment?.payment_method) {
-      const payment = paymentDetails.gateway_response.data.payment;
-      if (payment.payment_method.card) {
-        paymentMethod = 'CARD';
-      } else if (payment.payment_method.upi) {
-        paymentMethod = 'UPI';
-      } else if (payment.payment_method.netbanking) {
-        paymentMethod = 'NET_BANKING';
-      } else if (payment.payment_method.app) {
-        paymentMethod = 'WALLET';
-      }
-    }
-
-    // Update Transaction document with correct payment method
-    const transaction = await Transaction.findOneAndUpdate(
-      { payment_id: payment._id },
-      {
-        $set: {
-          transaction_status: status,
-          transaction_id: paymentDetails.payment_id,
-          transaction_mode: paymentMethod, // Use the mapped payment method
-          gateway_response: paymentDetails.gateway_response,
-          updated_at: new Date()
-        }
-      },
-      { new: true }
-    );
-
-    if (!transaction) {
-      console.error(`Transaction record not found for payment ID: ${payment._id}`);
-    } else {
-      console.log(`Transaction ${transaction._id} updated with mode: ${paymentMethod}`);
-    }
-
-    return { payment, transaction };
-  } catch (error) {
-    console.error('Error updating payment status:', error);
-    throw error;
-  }
-};
 /**
  * Update subscription status helper function
  */
@@ -1315,6 +1092,7 @@ module.exports = {
   createInvestmentPayment,
   getPaymentStatus,
   getAvailableGateways,
+  processRazorpayWebhook,
   handleWebhook,
   verifyPayment
 };
