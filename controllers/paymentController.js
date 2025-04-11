@@ -10,6 +10,7 @@ const paymentConfig = require('../config/payment');
 const razorpayGateway = require('../gateways/razorpay');
 const geoip = require('../utils/geoip'); // You'll need to implement this
 const paymentService = require('../services/PaymentService.js');
+const { $where } = require('../models/userSubscriptionSchema.js');
 
 
 //investment payment through razorpay
@@ -757,83 +758,147 @@ const handleWebhook = async (req, res) => {
 };
 
 // Helper function to process Razorpay webhooks
+// const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
+//   try {
+//     console.log("updatePaymentStatus called with:", paymentDetails);
+//     console.log(`Updating payment status for order ${orderId} to ${status}`);
+    
+//     if (!orderId) {
+//       throw new Error('Order ID is required to update payment status');
+//     }
+  
+//     // Update the Payment document. (Assuming orderId here is _id; adjust if needed.)
+//     const transaction = await Transaction.findOneAndUpdate(
+//       // console.log(orderId),
+//       { 'gateway_response.id': orderId },
+//       {
+//         $set: {
+//           payment_status: status,
+//           payment_gateway_response: paymentDetails.gateway_response,
+//           updated_at: new Date(),
+//           gateway_payment_id: paymentDetails.payment_id
+//         }
+//       },
+//       {new: true}
+//       // {
+//       //   $set: {
+//       //     payment_status: status,
+//       //     payment_gateway_response: paymentDetails.gateway_response,
+//       //     updated_at: new Date(),
+//       //     gateway_payment_id: paymentDetails.payment_id
+//       //   }
+//       // },
+//       // { new: true }
+//     );
+//     console.log(transaction);
+//     const payment = await Payment.findOne(
+//       transaction.payment_id
+//     )
+//     console.log("Payment is ",payment);
+//     if (!transaction) {
+//       console.error(`Payment record not found for order ID: ${orderId}`);
+//       return null;
+//     }
+  
+//     console.log(`Payment ${payment._id} updated to status: ${status}`);
+  
+//     // Determine payment method from the Razorpay response inside gateway_response if available
+//     let paymentMethod = 'OTHER';
+//     if (
+//       paymentDetails.gateway_response &&
+//       paymentDetails.gateway_response.data &&
+//       paymentDetails.gateway_response.data.payment &&
+//       paymentDetails.gateway_response.data.payment.payment_method
+//     ) {
+//       const methodData = paymentDetails.gateway_response.data.payment.payment_method;
+//       if (methodData.card) {
+//         paymentMethod = 'CARD';
+//       } else if (methodData.upi) {
+//         paymentMethod = 'UPI';
+//       } else if (methodData.netbanking) {
+//         paymentMethod = 'NET_BANKING';
+//       } else if (methodData.app) {
+//         paymentMethod = 'WALLET';
+//       }
+//     }
+  
+//   //   const transaction = await Transaction.findOneAndUpdate(
+//   //     { payment_id: payment._id },
+//   //     {
+//   //       $set: {
+//   //         transaction_status: status,
+//   //         transaction_id: paymentDetails.payment_id,
+//   //         transaction_mode: paymentMethod,
+//   //         gateway_response: paymentDetails.gateway_response,
+//   //         updated_at: new Date()
+//   //       }
+//   //     },
+//   //     { new: true }
+//   //   );
+  
+//   //   if (!transaction) {
+//   //     console.error(`Transaction record not found for payment ID: ${payment._id}`);
+//   //   } else {
+//   //     console.log(`Transaction ${transaction._id} updated with mode: ${paymentMethod}`);
+//   //   }
+  
+//   //   return { payment, transaction };
+//   } catch (error) {
+//     console.error('Error updating payment status:', error);
+//     throw error;
+//   }
+// };
 const updatePaymentStatus = async (orderId, status, paymentDetails = {}) => {
   try {
     console.log("updatePaymentStatus called with:", paymentDetails);
     console.log(`Updating payment status for order ${orderId} to ${status}`);
-    
+
     if (!orderId) {
       throw new Error('Order ID is required to update payment status');
     }
-  
-    // Update the Payment document. (Assuming orderId here is _id; adjust if needed.)
-    const payment = await Payment.findOneAndUpdate(
-      { _id: orderId },
+
+    // First find the transaction by order ID
+    const transaction = await Transaction.findOne({
+      'gateway_response.id': orderId
+    });
+
+    if (!transaction) {
+      console.error(`Transaction not found for order ID: ${orderId}`);
+      return null;
+    }
+
+    // Update transaction status
+    transaction.transaction_status = status;
+    transaction.gateway_response = {
+      ...transaction.gateway_response,
+      ...paymentDetails.gateway_response
+    };
+    transaction.updated_at = new Date();
+    await transaction.save();
+
+    // Now update the associated payment
+    const payment = await Payment.findByIdAndUpdate(
+      transaction.payment_id,
       {
         $set: {
           payment_status: status,
-          payment_gateway_response: paymentDetails.gateway_response,
-          updated_at: new Date(),
-          gateway_payment_id: paymentDetails.payment_id
-        }
-      },
-      { new: true }
-    );
-  
-    if (!payment) {
-      console.error(`Payment record not found for order ID: ${orderId}`);
-      return null;
-    }
-  
-    console.log(`Payment ${payment._id} updated to status: ${status}`);
-  
-    // Determine payment method from the Razorpay response inside gateway_response if available
-    let paymentMethod = 'OTHER';
-    if (
-      paymentDetails.gateway_response &&
-      paymentDetails.gateway_response.data &&
-      paymentDetails.gateway_response.data.payment &&
-      paymentDetails.gateway_response.data.payment.payment_method
-    ) {
-      const methodData = paymentDetails.gateway_response.data.payment.payment_method;
-      if (methodData.card) {
-        paymentMethod = 'CARD';
-      } else if (methodData.upi) {
-        paymentMethod = 'UPI';
-      } else if (methodData.netbanking) {
-        paymentMethod = 'NET_BANKING';
-      } else if (methodData.app) {
-        paymentMethod = 'WALLET';
-      }
-    }
-  
-    const transaction = await Transaction.findOneAndUpdate(
-      { payment_id: payment._id },
-      {
-        $set: {
-          transaction_status: status,
-          transaction_id: paymentDetails.payment_id,
-          transaction_mode: paymentMethod,
-          gateway_response: paymentDetails.gateway_response,
           updated_at: new Date()
         }
       },
       { new: true }
     );
-  
-    if (!transaction) {
-      console.error(`Transaction record not found for payment ID: ${payment._id}`);
-    } else {
-      console.log(`Transaction ${transaction._id} updated with mode: ${paymentMethod}`);
+
+    if (!payment) {
+      console.error(`Payment not found for ID: ${transaction.payment_id}`);
+      return null;
     }
-  
-    return { payment, transaction };
+
+    console.log(`Payment ${payment._id} updated to status: ${status}`);
   } catch (error) {
     console.error('Error updating payment status:', error);
     throw error;
   }
 };
-
 const processRazorpayWebhook = async (req, res) => {
   try {
     // Get signature from headers.
@@ -878,36 +943,40 @@ const processRazorpayWebhook = async (req, res) => {
     // Process the webhook event; note: payload is inside req.body.payload
     const event = req.body.event;
     const payload = req.body.payload;
+    // console.log("Payload:", payload);
+    console.log("Event:", event);
     console.log(`Processing webhook event: ${event}`);
     
     switch (event) {
-      case 'payment.authorized':
-        if (payload && payload.payment && payload.payment.entity) {
-          const payment = payload.payment.entity;
-          await updatePaymentStatus(payment.order_id, 'SUCCESS', {
-            payment_id: payment.id,
-            amount: payment.amount / 100, // convert paise to rupees
-            method: payment.method,
-            gateway_response: req.body
-          });
-        }
-        break;
+      // case 'payment.authorized':
+      //   if (payload && payload.payment && payload.payment.entity) {
+      //     const payment = payload.payment.entity;
+      //     await updatePaymentStatus(payment.order_id, 'SUCCESS', {
+      //       payment_id: payment.id,
+      //       amount: payment.amount / 100, // convert paise to rupees
+      //       method: payment.method,
+      //       gateway_response: req.body
+      //     });
+      //   }
+      //   break;
   
-      case 'payment.captured':
-        if (payload && payload.payment && payload.payment.entity) {
-          const payment = payload.payment.entity;
-          await updatePaymentStatus(payment.order_id, 'SUCCESS', {
-            payment_id: payment.id,
-            amount: payment.amount / 100,
-            method: payment.method,
-            gateway_response: req.body
-          });
-        }
-        break;
+      // case 'payment.captured':
+      //   if (payload && payload.payment && payload.payment.entity) {
+      //     const payment = payload.payment.entity;
+      //     await updatePaymentStatus(payment.order_id, 'SUCCESS', {
+      //       payment_id: payment.id,
+      //       amount: payment.amount / 100,
+      //       method: payment.method,
+      //       gateway_response: req.body
+      //     });
+      //   }
+      //   break;
   
       case 'order.paid':
         if (payload && payload.order && payload.order.entity) {
           const order = payload.order.entity;
+          console.log("Order is : ",order);
+          console.log("Payload is : ",payload);
           // Optionally, if a payment entity is also present:
           let p = null;
           if (payload.payment && payload.payment.entity) {
