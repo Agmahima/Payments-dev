@@ -504,6 +504,7 @@ exports.createPayment = async (req, res) => {
           if (gatewayResponse.success) {
             await Payment.findByIdAndUpdate(paymentRecord._id, {
               subscription_id: gatewayResponse.subscriptionId,
+              
               subscription_status: gatewayResponse.status,
               updated_by: new mongoose.Types.ObjectId(userId)
             });
