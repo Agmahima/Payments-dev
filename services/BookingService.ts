@@ -142,9 +142,13 @@ export class BookingService {
       authToken: authToken ? `${authToken.substring(0, 20)}...` : 'NONE'
     });
 
-      const response = await this.client.patch(`/api/bookings/${bookingId}/payment`, paymentData, {
-        headers
-      });
+      const response = await this.client.patch(
+    `/api/bookings/${bookingId}/payment-summary`,
+    {
+      paymentSummary: paymentData
+    },
+    { headers }
+  );
       
       if (response.status !== 200) {
         throw new Error(`Booking service returned status ${response.status}`);

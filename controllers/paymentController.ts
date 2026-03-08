@@ -70,6 +70,7 @@ export class PaymentController {
         });
         return;
       }
+      console.log("Booking details from booking service:", bookingResponse);
 
       const booking = bookingResponse.booking;
       // const payableAmount = booking.pricing.totalAmount;
