@@ -5,7 +5,7 @@ const axios = require('axios');
  * @param {String} ip - IP address
  * @returns {Promise<String>} Region code (country code)
  */
-exports.getRegion = async (ip) => {
+exports.getRegion = async (ip:string) => {
   try {
     // Use a free IP geolocation service
     const response = await axios.get(`https://ipapi.co/${ip}/json/`);

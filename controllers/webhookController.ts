@@ -1,7 +1,8 @@
 // controllers/webhookController.js
 const PaymentService = require('../services/PaymentService');
+import { Request,Response } from "express";
 
-exports.handleWebhook = async (req, res) => {
+exports.handleWebhook = async (req: Request, res: Response) => {
   try {
     const { gateway } = req.params;
     
@@ -20,9 +21,9 @@ exports.handleWebhook = async (req, res) => {
     
     // Always return 200 for webhooks
     return res.status(200).json({ received: true, processed: true });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Webhook processing error:', error);
     // Still return 200 to prevent retries
-    return res.status(200).json({ received: true, error: error.message });
+    return res.status(200).json({ received: true, error: (error as Error).message });
   }
 };

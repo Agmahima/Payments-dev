@@ -7,7 +7,7 @@ const stripeGateway = require('./stripe');
  * @param {string} gatewayName - The name of the payment gateway
  * @returns {Object} The payment gateway interface
  */
-const getPaymentGateway = (gatewayName) => {
+const getPaymentGateway = (gatewayName:string) => {
   switch (gatewayName.toLowerCase()) {
     case 'cashfree':
       return cashfreeGateway;
