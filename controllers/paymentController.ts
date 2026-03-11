@@ -306,7 +306,6 @@ export class PaymentController {
   };
 
   /**
-   * Get available payment methods for user (optional feature)
    * GET /api/payment/methods/:userId
    */
   getPaymentMethods = async (req: Request, res: Response): Promise<void> => {
