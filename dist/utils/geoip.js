@@ -1,4 +1,3 @@
-"use strict";
 const axios = require('axios');
 /**
  * Get region from IP address

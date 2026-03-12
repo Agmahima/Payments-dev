@@ -1,4 +1,3 @@
-"use strict";
 // const PaymentGateway = require('../models/PaymentGateway');
 // exports.addGateway = async (req, res) => {
 //     try {

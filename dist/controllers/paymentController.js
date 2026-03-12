@@ -12,11 +12,10 @@ class PaymentController {
          * POST /api/payment/initiate
          */
         this.initiatePayment = async (req, res) => {
-            var _a, _b, _c;
             try {
                 const { bookingId, amount, currency = 'INR', paymentType = 'booking', serviceAllocation, } = req.body;
                 // const userId = req.params.userId;
-                const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
+                const userId = req.user?.userId;
                 console.log("userId:", userId);
                 if (!userId) {
                     res.status(401).json({
@@ -27,7 +26,7 @@ class PaymentController {
                 }
                 console.log('Initiate payment request body:', req.body);
                 console.log(bookingId, userId, amount);
-                const authToken = (_b = req.headers.authorization) === null || _b === void 0 ? void 0 : _b.replace('Bearer ', '');
+                const authToken = req.headers.authorization?.replace('Bearer ', '');
                 console.log('Auth token in initiatePayment:', authToken);
                 console.log('🔑 Authorization header:', req.headers.authorization);
                 console.log('🔑 Extracted auth token:', authToken ? `${authToken.substring(0, 20)}...` : 'NONE');
@@ -73,7 +72,7 @@ class PaymentController {
                 console.log('Payment initiation result:', result);
                 logger_1.logger.info('Payment initiated successfully', {
                     bookingId,
-                    razorpayOrderId: (_c = result.razorpayOrder) === null || _c === void 0 ? void 0 : _c.id
+                    razorpayOrderId: result.razorpayOrder?.id
                 });
                 res.status(201).json(result);
             }
@@ -93,11 +92,10 @@ class PaymentController {
          * POST /api/payment/verify
          */
         this.verifyPayment = async (req, res) => {
-            var _a;
             try {
                 const { razorpay_order_id, razorpay_payment_id, razorpay_signature, bookingId } = req.body;
                 console.log("verified payments :", req.body);
-                const authToken = (_a = req.headers.authorization) === null || _a === void 0 ? void 0 : _a.replace('Bearer ', '');
+                const authToken = req.headers.authorization?.replace('Bearer ', '');
                 if (!authToken) {
                     console.log('No auth token provided in verifyPayment');
                 }

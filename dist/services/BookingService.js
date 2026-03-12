@@ -42,19 +42,17 @@ class BookingService {
             });
             return response;
         }, (error) => {
-            var _a, _b, _c;
             logger_1.logger.error('Booking service response error', {
-                status: (_a = error.response) === null || _a === void 0 ? void 0 : _a.status,
-                url: (_b = error.config) === null || _b === void 0 ? void 0 : _b.url,
+                status: error.response?.status,
+                url: error.config?.url,
                 error: error.message,
-                responseData: (_c = error.response) === null || _c === void 0 ? void 0 : _c.data
+                responseData: error.response?.data
             });
             return Promise.reject(error);
         });
     }
     // ✅ FIXED: Added authToken parameter to pass authentication
     async getBookingDetails(bookingId, authToken) {
-        var _a, _b, _c;
         try {
             const headers = {
                 'X-Service-Key': process.env.SERVICE_API_KEY || '' // ✅ This sends the secret key
@@ -63,8 +61,8 @@ class BookingService {
             console.log('🔍 getBookingDetails called:', {
                 bookingId,
                 hasAuthToken: !!authToken,
-                authTokenLength: authToken === null || authToken === void 0 ? void 0 : authToken.length,
-                callStack: (_a = new Error().stack) === null || _a === void 0 ? void 0 : _a.split('\n').slice(1, 4).join('\n') // Show call stack
+                authTokenLength: authToken?.length,
+                callStack: new Error().stack?.split('\n').slice(1, 4).join('\n') // Show call stack
             });
             // Add authentication token if provided
             if (authToken) {
@@ -99,14 +97,14 @@ class BookingService {
                 throw new Error('Booking service host not found. Please check configuration.');
             }
             // ✅ Better error handling for 401
-            if (((_b = error.response) === null || _b === void 0 ? void 0 : _b.status) === 401) {
+            if (error.response?.status === 401) {
                 logger_1.logger.error('Unauthorized access to booking service', { bookingId });
                 throw new Error('Authentication failed. Please login again.');
             }
             logger_1.logger.error('Failed to fetch booking details', {
                 bookingId,
                 error: error.message,
-                status: (_c = error.response) === null || _c === void 0 ? void 0 : _c.status
+                status: error.response?.status
             });
             throw new Error(`Failed to fetch booking details: ${error.message}`);
         }

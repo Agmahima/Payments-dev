@@ -161,10 +161,9 @@ class PaymentService {
         }
     }
     async handleOrderPaid(payload) {
-        var _a;
         try {
             const order = payload.order.entity;
-            const paymentEntity = (_a = payload.payment) === null || _a === void 0 ? void 0 : _a.entity;
+            const paymentEntity = payload.payment?.entity;
             const payment = await Payment_1.Payment.findOne({ transactionRef: order.id });
             if (!payment) {
                 logger_1.logger.error('Payment not found for webhook', { orderId: order.id });

@@ -1,4 +1,3 @@
-"use strict";
 // const Razorpay=require('razorpay');
 // // const crypto=require('crypto');
 // // const mongoose=require('mongoose');

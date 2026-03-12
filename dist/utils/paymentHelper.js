@@ -1,4 +1,3 @@
-"use strict";
 const cashfreeGateway = require('./cashfree');
 const razorpayGateway = require('./razorpay');
 const stripeGateway = require('./stripe');
